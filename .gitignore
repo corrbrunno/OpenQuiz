@@ -23,3 +23,5 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .firebase/
 firebase-debug.log
+*.log
+scripts/teste-logica.mjs

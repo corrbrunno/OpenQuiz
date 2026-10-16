@@ -1,20 +1,14 @@
 import { getFirebase } from './firebase';
 import type { User } from 'firebase/auth';
-
-export type PerguntaNova = {
-	enunciado: string;
-	alternativas: string[];
-	correta: number;
-	imagem: File | null;
-};
-
-export type PerguntaSalva = {
-	id: string;
-	ordem: number;
-	enunciado: string;
-	alternativas: string[];
-	imagemUrl: string | null;
-};
+import { montarGabarito, type RascunhoPergunta } from '$lib/quiz/rascunhos';
+import type {
+	Atribuicao,
+	ConteudoPergunta,
+	PerguntaSalva,
+	RespostaComum,
+	TipoPergunta
+} from '$lib/quiz/tipos';
+import { novoItem } from '$lib/quiz/utils';
 
 export type SalaCarregada = {
 	id: string;
@@ -65,7 +59,7 @@ async function enviarImagem(arquivo: File, usuario: User): Promise<string> {
 
 export async function salvarQuestionario(
 	titulo: string,
-	perguntas: PerguntaNova[],
+	perguntas: RascunhoPergunta[],
 	usuario: User
 ): Promise<{ id: string; codigo: string }> {
 	const { db, firestoreMod: F } = await getFirebase();
@@ -80,26 +74,43 @@ export async function salvarQuestionario(
 		criadoEm: F.serverTimestamp()
 	});
 
-	for (const [indice, pergunta] of perguntas.entries()) {
+	for (const [indice, rascunho] of perguntas.entries()) {
 		const ordem = indice + 1;
-		const imagemUrl = pergunta.imagem ? await enviarImagem(pergunta.imagem, usuario) : null;
+		const imagemUrl = rascunho.imagem ? await enviarImagem(rascunho.imagem, usuario) : null;
+		const gabarito = montarGabarito(rascunho);
 
 		const salva = await F.addDoc(F.collection(db, 'quizzes', quiz.id, 'perguntas'), {
 			ordem,
-			enunciado: pergunta.enunciado.trim(),
-			alternativas: pergunta.alternativas.map((alternativa) => alternativa.trim()),
-			imagemUrl
+			enunciado: rascunho.enunciado.trim(),
+			imagemUrl,
+			tipo: rascunho.conteudo.tipo,
+			conteudo: rascunho.conteudo
 		});
 
-		// O gabarito fica fora do documento da pergunta para não vazar para quem só joga.
+		// O gabarito fica fora do documento da pergunta, no formato comum de resposta.
 		await F.setDoc(F.doc(db, 'gabaritos', salva.id), {
 			quizId: quiz.id,
+			perguntaId: salva.id,
 			donoUid: usuario.uid,
-			correta: pergunta.correta
+			tipo: gabarito.tipo,
+			atribuicoes: gabarito.atribuicoes
 		});
 	}
 
 	return { id: quiz.id, codigo };
+}
+
+function normalizarConteudo(dados: Record<string, unknown>): ConteudoPergunta {
+	const conteudo = dados.conteudo as ConteudoPergunta | undefined;
+	if (conteudo && typeof conteudo === 'object' && 'tipo' in conteudo) return conteudo;
+
+	// Documentos criados antes dos tipos múltiplos guardavam apenas as alternativas.
+	const alternativas = Array.isArray(dados.alternativas) ? (dados.alternativas as string[]) : [];
+	return {
+		tipo: 'multipla-escolha',
+		opcoes: alternativas.map((texto) => novoItem(texto)),
+		permiteMultiplas: false
+	};
 }
 
 export async function buscarPorCodigo(codigoDigitado: string): Promise<SalaCarregada | null> {
@@ -124,15 +135,50 @@ export async function buscarPorCodigo(codigoDigitado: string): Promise<SalaCarre
 		totalPerguntas: Number(dados.totalPerguntas ?? perguntasSnap.size),
 		perguntas: perguntasSnap.docs.map((item) => {
 			const pergunta = item.data();
+			const conteudo = normalizarConteudo(pergunta);
+
 			return {
 				id: item.id,
 				ordem: Number(pergunta.ordem ?? 0),
 				enunciado: String(pergunta.enunciado ?? ''),
-				alternativas: Array.isArray(pergunta.alternativas) ? (pergunta.alternativas as string[]) : [],
-				imagemUrl: pergunta.imagemUrl ? String(pergunta.imagemUrl) : null
+				imagemUrl: pergunta.imagemUrl ? String(pergunta.imagemUrl) : null,
+				tipo: conteudo.tipo,
+				conteudo
 			};
 		})
 	};
+}
+
+/** Só o dono consegue ler; para os demais o Firestore responde permission-denied. */
+export async function carregarGabaritos(
+	perguntaIds: string[]
+): Promise<Map<string, RespostaComum> | null> {
+	const { db, firestoreMod: F } = await getFirebase();
+
+	try {
+		const documentos = await Promise.all(
+			perguntaIds.map((perguntaId) => F.getDoc(F.doc(db, 'gabaritos', perguntaId)))
+		);
+
+		const mapa = new Map<string, RespostaComum>();
+
+		documentos.forEach((documento, indice) => {
+			if (!documento.exists()) return;
+
+			const dados = documento.data() as { tipo?: TipoPergunta; atribuicoes?: Atribuicao[] };
+			if (!dados.tipo || !Array.isArray(dados.atribuicoes)) return;
+
+			mapa.set(perguntaIds[indice], {
+				perguntaId: perguntaIds[indice],
+				tipo: dados.tipo,
+				atribuicoes: dados.atribuicoes
+			});
+		});
+
+		return mapa;
+	} catch {
+		return null;
+	}
 }
 
 export function mensagemDeErro(erro: unknown): string {

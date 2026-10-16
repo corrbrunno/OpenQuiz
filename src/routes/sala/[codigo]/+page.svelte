@@ -2,14 +2,17 @@
 	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
-	import { buscarPorCodigo, mensagemDeErro, type SalaCarregada } from '$lib/client/quiz';
+	import ResponderPergunta from '$lib/components/quiz/ResponderPergunta.svelte';
+	import { buscarPorCodigo, carregarGabaritos, mensagemDeErro, type SalaCarregada } from '$lib/client/quiz';
 	import { authState } from '$lib/client/stores/auth.svelte';
+	import type { RespostaComum } from '$lib/quiz/tipos';
 
 	const codigo = $derived(page.params.codigo ?? '');
 
 	let carregando = $state(true);
 	let erro = $state('');
 	let sala = $state<SalaCarregada | null>(null);
+	let gabaritos = $state<Map<string, RespostaComum>>(new Map());
 
 	$effect(() => {
 		const autenticado = Boolean(authState.user);
@@ -24,8 +27,12 @@
 		erro = '';
 
 		buscarPorCodigo(alvo)
-			.then((resultado) => {
+			.then(async (resultado) => {
 				sala = resultado;
+
+				if (!resultado) return;
+				const mapa = await carregarGabaritos(resultado.perguntas.map((pergunta) => pergunta.id));
+				gabaritos = mapa ?? new Map<string, RespostaComum>();
 			})
 			.catch((falha) => {
 				erro = mensagemDeErro(falha);
@@ -52,9 +59,7 @@
 		<Card.Root>
 			<Card.Header>
 				<Card.Title>Login obrigatório</Card.Title>
-				<Card.Description>
-					Você precisa de uma conta para entrar nesta sala.
-				</Card.Description>
+				<Card.Description>Você precisa de uma conta para entrar nesta sala.</Card.Description>
 			</Card.Header>
 			<Card.Content class="flex flex-col gap-3">
 				<Button href={`/login?redirect=/sala/${codigo}`}>Entrar ou criar conta</Button>
@@ -87,37 +92,20 @@
 				<Card.Title>{sala.titulo}</Card.Title>
 				<Card.Description>
 					{sala.totalPerguntas} pergunta{sala.totalPerguntas === 1 ? '' : 's'} ·
-					Jogando como {authState.user.email}
+					Respondendo como {authState.user.email}
 				</Card.Description>
 			</Card.Header>
 		</Card.Root>
 
 		{#each sala.perguntas as pergunta (pergunta.id)}
-			<Card.Root>
-				<Card.Header>
-					<Card.Title>Pergunta {pergunta.ordem}</Card.Title>
-				</Card.Header>
-				<Card.Content class="flex flex-col gap-3">
-					{#if pergunta.imagemUrl}
-						<img
-							src={pergunta.imagemUrl}
-							alt={`Imagem da pergunta ${pergunta.ordem}`}
-							class="max-h-64 w-fit rounded-md border object-contain"
-						/>
-					{/if}
-					<p>{pergunta.enunciado}</p>
-					<ul class="text-muted-foreground flex flex-col gap-1 text-sm">
-						{#each pergunta.alternativas as alternativa, indice}
-							<li>{['A', 'B', 'C', 'D', 'E', 'F'][indice]}) {alternativa}</li>
-						{/each}
-					</ul>
-				</Card.Content>
-			</Card.Root>
+			<ResponderPergunta {pergunta} gabarito={gabaritos.get(pergunta.id) ?? null} />
 		{/each}
 
-		<p class="text-muted-foreground text-sm">
-			Pré-visualização do questionário carregada do Firebase. A rodada ao vivo (pergunta na tela,
-			respostas e placar) entra na próxima etapa.
-		</p>
+		{#if gabaritos.size === 0}
+			<p class="text-muted-foreground text-sm">
+				Você está respondendo como participante: o gabarito só é acessível ao dono do questionário, então
+				a correção aparece apenas na conta que criou o quiz.
+			</p>
+		{/if}
 	{/if}
 </div>
