@@ -1,11 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import LogInIcon from '@lucide/svelte/icons/log-in';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { firebaseConfigurado } from '$lib/client/firebase';
-	import { authState, criarConta, entrar, redefinirSenha } from '$lib/client/stores/auth.svelte';
+	import {
+		authState,
+		criarConta,
+		entrar,
+		entrarComGoogle,
+		redefinirSenha
+	} from '$lib/client/stores/auth.svelte';
 
 	let modo = $state<'entrar' | 'criar'>('entrar');
 	let email = $state('');
@@ -35,6 +42,17 @@
 		ocupado = false;
 
 		if (ok) await goto(destino);
+	}
+
+	async function comGoogle() {
+		erro = '';
+		aviso = '';
+
+		ocupado = true;
+		const ok = await entrarComGoogle();
+		ocupado = false;
+
+		if (ok && authState.user) await goto(destino);
 	}
 
 	async function esqueci() {
@@ -86,6 +104,17 @@
 			</Card.Header>
 
 			<Card.Content class="flex flex-col gap-4">
+				<Button variant="outline" disabled={ocupado} onclick={comGoogle}>
+					<LogInIcon class="size-4" />
+					Continuar com Google
+				</Button>
+
+				<div class="flex items-center gap-3">
+					<span class="bg-border h-px flex-1"></span>
+					<span class="text-muted-foreground text-xs">ou com e-mail</span>
+					<span class="bg-border h-px flex-1"></span>
+				</div>
+
 				<div class="grid grid-cols-2 gap-2">
 					<Button
 						variant={modo === 'entrar' ? 'default' : 'outline'}
