@@ -1,34 +1,58 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
+	import { authState } from '$lib/client/stores/auth.svelte';
 
-	let code = $state('');
+	let codigo = $state('');
+
+	function entrarNaSala() {
+		const limpo = codigo.trim().toUpperCase();
+		if (limpo) void goto(`/sala/${limpo}`);
+	}
 </script>
 
-<main class="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center gap-8 p-6">
+<section class="flex flex-col gap-8">
 	<header class="flex flex-col gap-3">
-		<Badge variant="secondary" class="w-fit">SvelteKit 5 · Drizzle · shadcn-svelte · Tailwind 4</Badge>
+		<Badge variant="secondary" class="w-fit">SvelteKit 5 · Firebase · Drizzle · shadcn-svelte</Badge>
 		<h1 class="text-4xl font-bold tracking-tight">Online Quiz</h1>
-		<p class="text-muted-foreground">
-			Base do projeto configurada: rotas, tema, componentes e banco prontos para o quiz.
+		<p class="text-muted-foreground max-w-2xl">
+			Crie questionários com perguntas objetivas e imagens, e entre na sala pelo código compartilhado.
 		</p>
 	</header>
 
-	<Card.Root>
-		<Card.Header>
-			<Card.Title>Entrar em uma sala</Card.Title>
-			<Card.Description>Use o código informado por quem criou o quiz.</Card.Description>
-		</Card.Header>
-		<Card.Content>
-			<div class="flex flex-col gap-3 sm:flex-row">
-				<Input placeholder="Código da sala" bind:value={code} />
-				<Button disabled={code.trim().length === 0}>Entrar</Button>
-			</div>
-		</Card.Content>
-		<Card.Footer>
-			<Button variant="outline" class="w-full sm:w-auto">Criar quiz</Button>
-		</Card.Footer>
-	</Card.Root>
-</main>
+	<div class="grid gap-4 md:grid-cols-2">
+		<Card.Root>
+			<Card.Header>
+				<Card.Title>Entrar em uma sala</Card.Title>
+				<Card.Description>O login é obrigatório para participar.</Card.Description>
+			</Card.Header>
+			<Card.Content class="flex flex-col gap-3">
+				<Input placeholder="Código da sala" bind:value={codigo} maxlength={6} class="uppercase" />
+				<Button disabled={codigo.trim().length === 0} onclick={entrarNaSala}>Entrar</Button>
+				{#if !authState.user && !authState.carregando}
+					<p class="text-muted-foreground text-xs">
+						Sem conta ainda? O acesso à sala vai pedir para você entrar.
+					</p>
+				{/if}
+			</Card.Content>
+		</Card.Root>
+
+		<Card.Root>
+			<Card.Header>
+				<Card.Title>Criar questionário</Card.Title>
+				<Card.Description>Perguntas objetivas com imagem opcional.</Card.Description>
+			</Card.Header>
+			<Card.Content class="flex flex-col gap-3">
+				<Button variant="outline" href="/criar" disabled={!authState.user}>
+					{authState.user ? 'Abrir o criador' : 'Entre para criar'}
+				</Button>
+				<p class="text-muted-foreground text-xs">
+					Ao salvar, o sistema gera um código de 6 caracteres para os participantes.
+				</p>
+			</Card.Content>
+		</Card.Root>
+	</div>
+</section>
