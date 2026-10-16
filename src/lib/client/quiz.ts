@@ -1,58 +1,70 @@
-import { getFirebase } from './firebase';
 import type { User } from 'firebase/auth';
 import { montarGabarito, type RascunhoPergunta } from '$lib/quiz/rascunhos';
 import type {
 	Atribuicao,
-	ConteudoPergunta,
 	PerguntaSalva,
 	RespostaComum,
 	TipoPergunta
 } from '$lib/quiz/tipos';
-import { novoItem } from '$lib/quiz/utils';
 
 export type SalaCarregada = {
 	id: string;
 	titulo: string;
 	codigo: string;
 	totalPerguntas: number;
+	souDono: boolean;
 	perguntas: PerguntaSalva[];
 };
 
-const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+/** Erro vindo da API, com o status HTTP para a tela decidir o que mostrar. */
+export class ErroApi extends Error {
+	readonly status: number;
 
-function gerarCodigo(tamanho = 6): string {
-	const valores = new Uint32Array(tamanho);
-	crypto.getRandomValues(valores);
-	return Array.from(valores, (valor) => ALFABETO[valor % ALFABETO.length]).join('');
+	constructor(mensagem: string, status: number) {
+		super(mensagem);
+		this.name = 'ErroApi';
+		this.status = status;
+	}
 }
 
-async function gerarCodigoLivre(): Promise<string> {
-	const { db, firestoreMod: F } = await getFirebase();
+type OpcoesChamada = { metodo?: string; corpo?: unknown; formulario?: FormData };
 
-	for (let tentativa = 0; tentativa < 5; tentativa++) {
-		const codigo = gerarCodigo();
-		const repetido = await F.getDocs(
-			F.query(F.collection(db, 'quizzes'), F.where('codigo', '==', codigo), F.limit(1))
-		);
-		if (repetido.empty) return codigo;
+async function chamar<T>(caminho: string, usuario: User, opcoes: OpcoesChamada = {}): Promise<T> {
+	const cabecalhos: Record<string, string> = {
+		Authorization: `Bearer ${await usuario.getIdToken()}`
+	};
+	if (opcoes.corpo !== undefined) cabecalhos['Content-Type'] = 'application/json';
+
+	const resposta = await fetch(caminho, {
+		method: opcoes.metodo ?? 'GET',
+		headers: cabecalhos,
+		body:
+			opcoes.formulario ??
+			(opcoes.corpo !== undefined ? JSON.stringify(opcoes.corpo) : undefined)
+	});
+
+	const corpo = (await resposta.json().catch(() => ({}))) as T & { erro?: string };
+	if (!resposta.ok) {
+		throw new ErroApi(corpo?.erro ?? 'Não foi possível concluir a operação.', resposta.status);
 	}
 
-	throw new Error('Não foi possível reservar um código de sala livre. Tente salvar novamente.');
+	return corpo;
 }
 
 async function enviarImagem(arquivo: File, usuario: User): Promise<string> {
-	const idToken = await usuario.getIdToken();
 	const formulario = new FormData();
 	formulario.append('arquivo', arquivo);
 
 	const resposta = await fetch('/api/upload', {
 		method: 'POST',
-		headers: { Authorization: `Bearer ${idToken}` },
+		headers: { Authorization: `Bearer ${await usuario.getIdToken()}` },
 		body: formulario
 	});
 
 	const corpo = (await resposta.json().catch(() => ({}))) as { url?: string; erro?: string };
-	if (!resposta.ok || !corpo.url) throw new Error(corpo.erro ?? 'Falha ao enviar a imagem.');
+	if (!resposta.ok || !corpo.url) {
+		throw new ErroApi(corpo.erro ?? 'Falha ao enviar a imagem.', resposta.status);
+	}
 
 	return corpo.url;
 }
@@ -62,141 +74,76 @@ export async function salvarQuestionario(
 	perguntas: RascunhoPergunta[],
 	usuario: User
 ): Promise<{ id: string; codigo: string }> {
-	const { db, firestoreMod: F } = await getFirebase();
-	const codigo = await gerarCodigoLivre();
+	const envio = [];
 
-	const quiz = await F.addDoc(F.collection(db, 'quizzes'), {
-		titulo: titulo.trim(),
-		codigo,
-		donoUid: usuario.uid,
-		donoEmail: usuario.email ?? null,
-		totalPerguntas: perguntas.length,
-		criadoEm: F.serverTimestamp()
-	});
-
-	for (const [indice, rascunho] of perguntas.entries()) {
-		const ordem = indice + 1;
+	for (const rascunho of perguntas) {
 		const imagemUrl = rascunho.imagem ? await enviarImagem(rascunho.imagem, usuario) : null;
 		const gabarito = montarGabarito(rascunho);
 
-		const salva = await F.addDoc(F.collection(db, 'quizzes', quiz.id, 'perguntas'), {
-			ordem,
+		envio.push({
 			enunciado: rascunho.enunciado.trim(),
 			imagemUrl,
 			tipo: rascunho.conteudo.tipo,
-			conteudo: rascunho.conteudo
-		});
-
-		// O gabarito fica fora do documento da pergunta, no formato comum de resposta.
-		await F.setDoc(F.doc(db, 'gabaritos', salva.id), {
-			quizId: quiz.id,
-			perguntaId: salva.id,
-			donoUid: usuario.uid,
-			tipo: gabarito.tipo,
-			atribuicoes: gabarito.atribuicoes
+			conteudo: rascunho.conteudo,
+			gabarito: { tipo: gabarito.tipo, atribuicoes: gabarito.atribuicoes }
 		});
 	}
 
-	return { id: quiz.id, codigo };
+	return chamar<{ id: string; codigo: string }>('/api/quizzes', usuario, {
+		metodo: 'POST',
+		corpo: { titulo: titulo.trim(), perguntas: envio }
+	});
 }
 
-function normalizarConteudo(dados: Record<string, unknown>): ConteudoPergunta {
-	const conteudo = dados.conteudo as ConteudoPergunta | undefined;
-	if (conteudo && typeof conteudo === 'object' && 'tipo' in conteudo) return conteudo;
-
-	// Documentos criados antes dos tipos múltiplos guardavam apenas as alternativas.
-	const alternativas = Array.isArray(dados.alternativas) ? (dados.alternativas as string[]) : [];
-	return {
-		tipo: 'multipla-escolha',
-		opcoes: alternativas.map((texto) => novoItem(texto)),
-		permiteMultiplas: false
-	};
-}
-
-export async function buscarPorCodigo(codigoDigitado: string): Promise<SalaCarregada | null> {
-	const { db, firestoreMod: F } = await getFirebase();
-	const codigo = codigoDigitado.trim().toUpperCase();
-
-	const encontrado = await F.getDocs(
-		F.query(F.collection(db, 'quizzes'), F.where('codigo', '==', codigo), F.limit(1))
-	);
-	if (encontrado.empty) return null;
-
-	const documento = encontrado.docs[0];
-	const dados = documento.data();
-	const perguntasSnap = await F.getDocs(
-		F.query(F.collection(db, 'quizzes', documento.id, 'perguntas'), F.orderBy('ordem', 'asc'))
-	);
-
-	return {
-		id: documento.id,
-		titulo: String(dados.titulo ?? 'Sem título'),
-		codigo: String(dados.codigo ?? codigo),
-		totalPerguntas: Number(dados.totalPerguntas ?? perguntasSnap.size),
-		perguntas: perguntasSnap.docs.map((item) => {
-			const pergunta = item.data();
-			const conteudo = normalizarConteudo(pergunta);
-
-			return {
-				id: item.id,
-				ordem: Number(pergunta.ordem ?? 0),
-				enunciado: String(pergunta.enunciado ?? ''),
-				imagemUrl: pergunta.imagemUrl ? String(pergunta.imagemUrl) : null,
-				tipo: conteudo.tipo,
-				conteudo
-			};
-		})
-	};
-}
-
-/** Só o dono consegue ler; para os demais o Firestore responde permission-denied. */
-export async function carregarGabaritos(
-	perguntaIds: string[]
-): Promise<Map<string, RespostaComum> | null> {
-	const { db, firestoreMod: F } = await getFirebase();
+export async function buscarPorCodigo(
+	codigoDigitado: string,
+	usuario: User
+): Promise<SalaCarregada | null> {
+	const codigo = encodeURIComponent(codigoDigitado.trim().toUpperCase());
 
 	try {
-		const documentos = await Promise.all(
-			perguntaIds.map((perguntaId) => F.getDoc(F.doc(db, 'gabaritos', perguntaId)))
+		const { sala } = await chamar<{ sala: SalaCarregada }>(`/api/quizzes/${codigo}`, usuario);
+		return sala;
+	} catch (falha) {
+		if (falha instanceof ErroApi && falha.status === 404) return null;
+		throw falha;
+	}
+}
+
+/** Devolve `null` quando quem pediu não é o dono — é a API que decide isso. */
+export async function carregarGabaritos(
+	codigoDigitado: string,
+	usuario: User
+): Promise<Map<string, RespostaComum> | null> {
+	const codigo = encodeURIComponent(codigoDigitado.trim().toUpperCase());
+
+	try {
+		const { gabaritos } = await chamar<{
+			gabaritos: { perguntaId: string; tipo: TipoPergunta; atribuicoes: Atribuicao[] }[];
+		}>(`/api/quizzes/${codigo}/gabaritos`, usuario);
+
+		return new Map(
+			gabaritos.map((item) => [
+				item.perguntaId,
+				{ perguntaId: item.perguntaId, tipo: item.tipo, atribuicoes: item.atribuicoes }
+			])
 		);
-
-		const mapa = new Map<string, RespostaComum>();
-
-		documentos.forEach((documento, indice) => {
-			if (!documento.exists()) return;
-
-			const dados = documento.data() as { tipo?: TipoPergunta; atribuicoes?: Atribuicao[] };
-			if (!dados.tipo || !Array.isArray(dados.atribuicoes)) return;
-
-			mapa.set(perguntaIds[indice], {
-				perguntaId: perguntaIds[indice],
-				tipo: dados.tipo,
-				atribuicoes: dados.atribuicoes
-			});
-		});
-
-		return mapa;
-	} catch {
-		return null;
+	} catch (falha) {
+		if (falha instanceof ErroApi && falha.status === 403) return null;
+		throw falha;
 	}
 }
 
 export function mensagemDeErro(erro: unknown): string {
-	const codigo = (erro as { code?: string })?.code ?? '';
-	const texto = erro instanceof Error ? erro.message : '';
-
-	if (/has not been used in project|it is disabled/i.test(texto)) {
-		return 'O Firestore está desativado neste projeto. Ative em console.firebase.google.com → Firestore Database → Criar banco de dados.';
+	if (erro instanceof ErroApi) {
+		if (erro.status === 401) return 'Sua sessão expirou. Entre novamente para continuar.';
+		if (erro.status === 503) return erro.message;
+		return erro.message;
 	}
 
-	switch (codigo) {
-		case 'permission-denied':
-			return 'O Firestore recusou a operação: publique as regras do arquivo firestore.rules no console.';
-		case 'not-found':
-			return 'O banco Firestore ainda não foi criado neste projeto (console → Firestore → Criar banco).';
-		case 'unavailable':
-			return 'Sem conexão com o Firestore: verifique a internet e se o banco foi criado no projeto.';
-		default:
-			return erro instanceof Error ? erro.message : 'Não foi possível concluir a operação.';
+	if (erro instanceof TypeError) {
+		return 'Sem conexão com o servidor. Verifique a internet e tente de novo.';
 	}
+
+	return erro instanceof Error ? erro.message : 'Não foi possível concluir a operação.';
 }

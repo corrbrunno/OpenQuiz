@@ -11,6 +11,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test:logica": "esbuild scripts/teste-logica.ts --bundle --format=esm --platform=node --outfile=scripts/teste-logica.mjs --log-level=error && node scripts/teste-logica.mjs",
+		"test:api": "node --env-file=.env scripts/teste-api.mjs",
 		"format": "prettier --write .",
 		"lint": "prettier --check . && eslint .",
 		"db:start": "docker compose up",

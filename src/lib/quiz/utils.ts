@@ -1,4 +1,20 @@
-import type { Item, ParCorrespondencia } from './tipos';
+import type { ConteudoPergunta, Item, ParCorrespondencia } from './tipos';
+
+/** Todos os ids que existem dentro de um conteúdo de pergunta (itens, opções, pares, coluna B). */
+export function idsDoConteudo(conteudo: ConteudoPergunta): string[] {
+	switch (conteudo.tipo) {
+		case 'multipla-escolha':
+			return conteudo.opcoes.map((opcao) => opcao.id);
+		case 'verdadeiro-falso':
+			return ['verdadeiro', 'falso'];
+		case 'categorizar':
+			return [...conteudo.itens, ...conteudo.categorias].map((item) => item.id);
+		case 'reordenar':
+			return conteudo.itens.map((item) => item.id);
+		case 'correspondencia':
+			return conteudo.pares.flatMap((par) => [par.id, par.idDireita]);
+	}
+}
 
 export function novoId(): string {
 	return crypto.randomUUID();

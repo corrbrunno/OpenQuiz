@@ -1,32 +1,13 @@
 import { json } from '@sveltejs/kit';
 import { v2 as cloudinary } from 'cloudinary';
 import { env } from '$env/dynamic/private';
-import { env as envPublico } from '$env/dynamic/public';
+import { usuarioDaRequisicao } from '$lib/server/auth';
 import type { RequestHandler } from './$types';
 
 const TAMANHO_MAXIMO = 5 * 1024 * 1024;
 
 function cloudinaryConfigurado() {
 	return Boolean(env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET);
-}
-
-async function uidDoToken(idToken: string): Promise<string | null> {
-	const apiKey = envPublico.PUBLIC_FIREBASE_API_KEY;
-	if (!apiKey) return null;
-
-	const resposta = await fetch(
-		`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
-		{
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ idToken })
-		}
-	);
-
-	if (!resposta.ok) return null;
-
-	const dados = (await resposta.json()) as { users?: { localId?: string }[] };
-	return dados.users?.[0]?.localId ?? null;
 }
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -37,11 +18,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		);
 	}
 
-	const autorizacao = request.headers.get('authorization') ?? '';
-	const idToken = autorizacao.startsWith('Bearer ') ? autorizacao.slice(7) : '';
-	const uid = idToken ? await uidDoToken(idToken) : null;
-
-	if (!uid) {
+	const usuario = await usuarioDaRequisicao(request);
+	if (!usuario) {
 		return json({ erro: 'Entre na sua conta para anexar imagens.' }, { status: 401 });
 	}
 
@@ -64,7 +42,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	const base64 = Buffer.from(await arquivo.arrayBuffer()).toString('base64');
 	const enviado = await cloudinary.uploader.upload(`data:${arquivo.type};base64,${base64}`, {
-		folder: `quiz/${uid}`,
+		folder: `quiz/${usuario.uid}`,
 		resource_type: 'image'
 	});
 

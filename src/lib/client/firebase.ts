@@ -14,11 +14,10 @@ export function firebaseConfigurado(): boolean {
 	return Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId);
 }
 
+/** O Firebase é usado apenas para autenticação: os dados ficam no Postgres (Neon). */
 type FirebaseBundle = {
 	auth: import('firebase/auth').Auth;
-	db: import('firebase/firestore').Firestore;
 	authMod: typeof import('firebase/auth');
-	firestoreMod: typeof import('firebase/firestore');
 };
 
 let bundle: Promise<FirebaseBundle> | null = null;
@@ -31,20 +30,10 @@ export function getFirebase(): Promise<FirebaseBundle> {
 
 	if (!bundle) {
 		bundle = (async () => {
-			const [appMod, authMod, firestoreMod] = await Promise.all([
-				import('firebase/app'),
-				import('firebase/auth'),
-				import('firebase/firestore')
-			]);
-
+			const [appMod, authMod] = await Promise.all([import('firebase/app'), import('firebase/auth')]);
 			const app = appMod.getApps().length ? appMod.getApp() : appMod.initializeApp(firebaseConfig);
 
-			return {
-				auth: authMod.getAuth(app),
-				db: firestoreMod.getFirestore(app),
-				authMod,
-				firestoreMod
-			};
+			return { auth: authMod.getAuth(app), authMod };
 		})();
 	}
 

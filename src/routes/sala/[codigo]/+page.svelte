@@ -3,7 +3,12 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
 	import ResponderPergunta from '$lib/components/quiz/ResponderPergunta.svelte';
-	import { buscarPorCodigo, carregarGabaritos, mensagemDeErro, type SalaCarregada } from '$lib/client/quiz';
+	import {
+		buscarPorCodigo,
+		carregarGabaritos,
+		mensagemDeErro,
+		type SalaCarregada
+	} from '$lib/client/quiz';
 	import { authState } from '$lib/client/stores/auth.svelte';
 	import type { RespostaComum } from '$lib/quiz/tipos';
 
@@ -12,13 +17,13 @@
 	let carregando = $state(true);
 	let erro = $state('');
 	let sala = $state<SalaCarregada | null>(null);
-	let gabaritos = $state<Map<string, RespostaComum>>(new Map());
+	let gabaritos = $state<Map<string, RespostaComum> | null>(null);
 
 	$effect(() => {
-		const autenticado = Boolean(authState.user);
+		const usuario = authState.user;
 		const alvo = codigo;
 
-		if (!autenticado) {
+		if (!usuario) {
 			carregando = false;
 			return;
 		}
@@ -26,13 +31,12 @@
 		carregando = true;
 		erro = '';
 
-		buscarPorCodigo(alvo)
+		buscarPorCodigo(alvo, usuario)
 			.then(async (resultado) => {
 				sala = resultado;
-
 				if (!resultado) return;
-				const mapa = await carregarGabaritos(resultado.perguntas.map((pergunta) => pergunta.id));
-				gabaritos = mapa ?? new Map<string, RespostaComum>();
+
+				gabaritos = await carregarGabaritos(alvo, usuario);
 			})
 			.catch((falha) => {
 				erro = mensagemDeErro(falha);
@@ -98,13 +102,13 @@
 		</Card.Root>
 
 		{#each sala.perguntas as pergunta (pergunta.id)}
-			<ResponderPergunta {pergunta} gabarito={gabaritos.get(pergunta.id) ?? null} />
+			<ResponderPergunta {pergunta} gabarito={gabaritos?.get(pergunta.id) ?? null} />
 		{/each}
 
-		{#if gabaritos.size === 0}
+		{#if !gabaritos}
 			<p class="text-muted-foreground text-sm">
-				Você está respondendo como participante: o gabarito só é acessível ao dono do questionário, então
-				a correção aparece apenas na conta que criou o quiz.
+				Você está respondendo como participante: o gabarito fica no servidor e só é liberado para o dono
+				do questionário, então a correção aparece apenas na conta que criou o quiz.
 			</p>
 		{/if}
 	{/if}
