@@ -1,6 +1,9 @@
 /**
- * Teste ponta a ponta da API contra o Neon, com idToken real do Firebase Auth.
- * Rode com: node --env-file=.env teste_api.mjs
+ * Teste ponta a ponta da API + Neon, com idToken real do Firebase Auth.
+ *   node --env-file=.env scripts/teste-api.mjs      (exige `npm run dev` rodando)
+ *
+ * Parte 1: CRUD do questionário. Parte 2: sessão ao vivo (conduzida e livre), pontuação no
+ * servidor e placar final. Tudo que é criado é apagado no fim.
  */
 import postgres from 'postgres';
 
@@ -12,7 +15,9 @@ let falhas = 0;
 function conferir(rotulo, obtido, esperado) {
 	const ok = JSON.stringify(obtido) === JSON.stringify(esperado);
 	if (!ok) falhas++;
-	console.log(`${ok ? 'OK  ' : 'FALHA'} ${rotulo} -> ${JSON.stringify(obtido)}${ok ? '' : ` (esperado ${JSON.stringify(esperado)})`}`);
+	console.log(
+		`${ok ? 'OK  ' : 'FALHA'} ${rotulo} -> ${JSON.stringify(obtido)}${ok ? '' : ` (esperado ${JSON.stringify(esperado)})`}`
+	);
 }
 
 async function criarUsuario(rotulo) {
@@ -59,7 +64,7 @@ async function chamar(caminho, idToken, opcoes = {}) {
 const id = () => crypto.randomUUID();
 const item = (texto) => ({ id: id(), texto });
 
-// ---------- payload com um exemplo de cada tipo ----------
+// ---------- questionário de teste: um exemplo de cada tipo ----------
 const opcoes = [item('Brasília'), item('Rio de Janeiro'), item('São Paulo')];
 const itensCategoria = [item('Cachorro'), item('Águia')];
 const categorias = [item('Mamífero'), item('Ave')];
@@ -67,191 +72,383 @@ const itensOrdem = [item('Primeiro passo'), item('Segundo passo'), item('Terceir
 const parA = { id: id(), esquerda: 'Brasil', direita: 'Brasília', idDireita: id() };
 const parB = { id: id(), esquerda: 'Chile', direita: 'Santiago', idDireita: id() };
 
-const corpo = {
-	titulo: 'Prova de teste (API + Neon)',
-	perguntas: [
-		{
-			enunciado: 'Qual é a capital do Brasil?',
-			imagemUrl: null,
-			tipo: 'multipla-escolha',
-			conteudo: { tipo: 'multipla-escolha', opcoes, permiteMultiplas: false },
-			gabarito: { tipo: 'multipla-escolha', atribuicoes: [{ itemId: opcoes[0].id, alvoId: 'marcada' }] }
-		},
-		{
-			enunciado: 'A Terra é plana.',
-			imagemUrl: null,
-			tipo: 'verdadeiro-falso',
-			conteudo: { tipo: 'verdadeiro-falso' },
-			gabarito: { tipo: 'verdadeiro-falso', atribuicoes: [{ itemId: 'falso', alvoId: 'escolhida' }] }
-		},
-		{
-			enunciado: 'Separe os animais.',
-			imagemUrl: null,
+const ERRO_MC = { itemId: opcoes[1].id, alvoId: 'marcada' };
+const CERTO_MC = { itemId: opcoes[0].id, alvoId: 'marcada' };
+
+const perguntasDoQuiz = [
+	{
+		enunciado: 'Qual é a capital do Brasil?',
+		imagemUrl: null,
+		tipo: 'multipla-escolha',
+		conteudo: { tipo: 'multipla-escolha', opcoes, permiteMultiplas: false },
+		gabarito: { tipo: 'multipla-escolha', atribuicoes: [CERTO_MC] }
+	},
+	{
+		enunciado: 'A Terra é plana.',
+		imagemUrl: null,
+		tipo: 'verdadeiro-falso',
+		conteudo: { tipo: 'verdadeiro-falso' },
+		gabarito: { tipo: 'verdadeiro-falso', atribuicoes: [{ itemId: 'falso', alvoId: 'escolhida' }] }
+	},
+	{
+		enunciado: 'Separe os animais.',
+		imagemUrl: null,
+		tipo: 'categorizar',
+		conteudo: { tipo: 'categorizar', itens: itensCategoria, categorias },
+		gabarito: {
 			tipo: 'categorizar',
-			conteudo: { tipo: 'categorizar', itens: itensCategoria, categorias },
-			gabarito: {
-				tipo: 'categorizar',
-				atribuicoes: [
-					{ itemId: itensCategoria[0].id, alvoId: categorias[0].id },
-					{ itemId: itensCategoria[1].id, alvoId: categorias[1].id }
-				]
-			}
-		},
-		{
-			enunciado: 'Ordene as etapas.',
-			imagemUrl: null,
-			tipo: 'reordenar',
-			conteudo: { tipo: 'reordenar', itens: itensOrdem },
-			gabarito: {
-				tipo: 'reordenar',
-				atribuicoes: itensOrdem.map((i, indice) => ({ itemId: i.id, alvoId: String(indice + 1) }))
-			}
-		},
-		{
-			enunciado: 'Ligue os países às capitais.',
-			imagemUrl: null,
-			tipo: 'correspondencia',
-			conteudo: { tipo: 'correspondencia', pares: [parA, parB] },
-			gabarito: {
-				tipo: 'correspondencia',
-				atribuicoes: [
-					{ itemId: parA.id, alvoId: parA.idDireita },
-					{ itemId: parB.id, alvoId: parB.idDireita }
-				]
-			}
+			atribuicoes: [
+				{ itemId: itensCategoria[0].id, alvoId: categorias[0].id },
+				{ itemId: itensCategoria[1].id, alvoId: categorias[1].id }
+			]
 		}
-	]
-};
+	},
+	{
+		enunciado: 'Ordene as etapas.',
+		imagemUrl: null,
+		tipo: 'reordenar',
+		conteudo: { tipo: 'reordenar', itens: itensOrdem },
+		gabarito: {
+			tipo: 'reordenar',
+			atribuicoes: itensOrdem.map((i, indice) => ({ itemId: i.id, alvoId: String(indice + 1) }))
+		}
+	},
+	{
+		enunciado: 'Ligue os países às capitais.',
+		imagemUrl: null,
+		tipo: 'correspondencia',
+		conteudo: { tipo: 'correspondencia', pares: [parA, parB] },
+		gabarito: {
+			tipo: 'correspondencia',
+			atribuicoes: [
+				{ itemId: parA.id, alvoId: parA.idDireita },
+				{ itemId: parB.id, alvoId: parB.idDireita }
+			]
+		}
+	}
+];
 
-console.log('=== AUTENTICACAO ===');
+console.log('=== LIMPEZA DE RESIDUO DE TESTES ANTERIORES ===');
+const residuo = await sql`
+	delete from quizzes where dono_email like 'teste-api-%' returning id
+`;
+console.log('questionarios de teste removidos:', residuo.length);
+
+console.log('\n=== USUARIOS DE TESTE ===');
 const dono = await criarUsuario('dono');
-const intruso = await criarUsuario('intruso');
-console.log('usuarios de teste criados:', dono.email, '|', intruso.email);
+const jogadorA = await criarUsuario('a');
+const jogadorB = await criarUsuario('b');
+console.log('criados:', dono.email, '|', jogadorA.email, '|', jogadorB.email);
 
-console.log('=== CRIAR QUESTIONARIO ===');
-const semToken = await chamar('/api/quizzes', null, { metodo: 'POST', corpo });
-conferir('sem token -> 401', semToken.status, 401);
-
-const criado = await chamar('/api/quizzes', dono.idToken, { metodo: 'POST', corpo });
+console.log('\n=== PARTE 1: QUESTIONARIO (CRIAR, LISTAR, EDITAR) ===');
+const criado = await chamar('/api/quizzes', dono.idToken, {
+	metodo: 'POST',
+	corpo: { titulo: 'Prova de teste (sessao)', perguntas: perguntasDoQuiz }
+});
 conferir('criado -> 201', criado.status, 201);
-conferir('codigo com 6 caracteres', String(criado.corpo.codigo ?? '').length, 6);
-const codigo = criado.corpo.codigo;
+const quizId = criado.corpo.id;
 
-console.log('=== CARREGAR A SALA ===');
-const sala = await chamar(`/api/quizzes/${codigo}`, dono.idToken);
-conferir('dono carrega -> 200', sala.status, 200);
-conferir('total de perguntas', sala.corpo.sala.totalPerguntas, 5);
-conferir('souDono', sala.corpo.sala.souDono, true);
+const lista = await chamar('/api/quizzes', dono.idToken);
+conferir('lista do dono tem 1', lista.corpo.quizzes.length, 1);
+conferir('sem codigo na lista (o codigo nasce na sessao)', 'codigo' in lista.corpo.quizzes[0], false);
+
+const listaDeOutro = await chamar('/api/quizzes', jogadorA.idToken);
+conferir('outro usuario nao ve o questionario', listaDeOutro.corpo.quizzes.length, 0);
+
+const paraEditar = await chamar(`/api/quizzes/${quizId}`, dono.idToken);
+conferir('carregar para edicao -> 200', paraEditar.status, 200);
+conferir('perguntas com gabarito para o editor', paraEditar.corpo.perguntas.length, 5);
+conferir('gabarito veio no formato comum', paraEditar.corpo.perguntas[0].gabarito.atribuicoes.length, 1);
+const idsOriginais = paraEditar.corpo.perguntas.map((p) => p.id);
+
+const semPermissao = await chamar(`/api/quizzes/${quizId}`, jogadorA.idToken);
+conferir('quem nao e dono nao carrega para editar -> 404', semPermissao.status, 404);
+
+// edita: título novo + inverte as duas primeiras perguntas (testa a reordenação com índice único)
+const paraAtualizar = paraEditar.corpo.perguntas.map((p) => ({
+	id: p.id,
+	enunciado: p.enunciado,
+	imagemUrl: p.imagemUrl,
+	tipo: p.tipo,
+	conteudo: p.conteudo,
+	gabarito: { tipo: p.gabarito.tipo, atribuicoes: p.gabarito.atribuicoes }
+}));
+const [primeira, segunda] = paraAtualizar;
+const atualizado = await chamar(`/api/quizzes/${quizId}`, dono.idToken, {
+	metodo: 'PUT',
+	corpo: {
+		titulo: 'Prova de teste (editada)',
+		perguntas: [segunda, primeira, ...paraAtualizar.slice(2)]
+	}
+});
+conferir('editar -> 200', atualizado.status, 200);
+
+const depoisDaEdicao = await chamar(`/api/quizzes/${quizId}`, dono.idToken);
+conferir('titulo atualizado', depoisDaEdicao.corpo.quiz.titulo, 'Prova de teste (editada)');
+conferir('ordem invertida', depoisDaEdicao.corpo.perguntas[0].id, idsOriginais[1]);
 conferir(
-	'tipos na ordem',
-	sala.corpo.sala.perguntas.map((p) => p.tipo),
-	['multipla-escolha', 'verdadeiro-falso', 'categorizar', 'reordenar', 'correspondencia']
+	'ids das perguntas preservados (respostas antigas nao morrem)',
+	[...depoisDaEdicao.corpo.perguntas].map((p) => p.id).sort(),
+	[...idsOriginais].sort()
 );
+
+// volta à ordem original para o resto do teste
+await chamar(`/api/quizzes/${quizId}`, dono.idToken, {
+	metodo: 'PUT',
+	corpo: { titulo: 'Prova de teste (editada)', perguntas: paraAtualizar }
+});
+const ordenado = await chamar(`/api/quizzes/${quizId}`, dono.idToken);
+const pergunta1 = ordenado.corpo.perguntas[0];
+const pergunta2 = ordenado.corpo.perguntas[1];
+conferir('voltou a ordem original', pergunta1.ordem, 1);
+
+console.log('\n=== PARTE 2: SESSAO CONDUZIDA ===');
+const sessaoCriada = await chamar('/api/sessoes', dono.idToken, {
+	metodo: 'POST',
+	corpo: { quizId, modo: 'conduzida' }
+});
+conferir('iniciar sessao -> 201', sessaoCriada.status, 201);
+const codigo = sessaoCriada.corpo.sessao.codigo;
+conferir('codigo com 6 caracteres', String(codigo ?? '').length, 6);
+
+const semLogin = await chamar(`/api/sessoes/${codigo}`, null);
+conferir('sala sem login -> 401', semLogin.status, 401);
+
+const estadoDono = await chamar(`/api/sessoes/${codigo}`, dono.idToken);
+conferir('dono abrindo a sala -> 200', estadoDono.status, 200);
+conferir('dono reconhecido', estadoDono.corpo.souDono, true);
+conferir('modo conduzida entrega so a pergunta no ar', estadoDono.corpo.perguntas.length, 1);
+conferir('e ela e a primeira', estadoDono.corpo.perguntas[0].id, pergunta1.id);
+
+const donoEntrando = await chamar(`/api/sessoes/${codigo}/entrar`, dono.idToken, {
+	metodo: 'POST',
+	corpo: {}
+});
+conferir('dono nao entra como jogador -> 409', donoEntrando.status, 409);
+
+const entraA = await chamar(`/api/sessoes/${codigo}/entrar`, jogadorA.idToken, {
+	metodo: 'POST',
+	corpo: {}
+});
+conferir('jogador A entra -> 201', entraA.status, 201);
+
+const entraB = await chamar(`/api/sessoes/${codigo}/entrar`, jogadorB.idToken, {
+	metodo: 'POST',
+	corpo: {}
+});
+conferir('jogador B entra -> 201', entraB.status, 201);
+
+const entraDeNovo = await chamar(`/api/sessoes/${codigo}/entrar`, jogadorA.idToken, {
+	metodo: 'POST',
+	corpo: {}
+});
+conferir('entrar de novo e idempotente -> 201', entraDeNovo.status, 201);
+
+const salaDoJogador = await chamar(`/api/sessoes/${codigo}`, jogadorA.idToken);
+conferir('jogador ve so a pergunta no ar', salaDoJogador.corpo.perguntas.length, 1);
 conferir(
-	'GABARITO NAO VAZA para quem carrega a sala',
-	JSON.stringify(sala.corpo).includes('atribuicoes'),
+	'gabarito NAO aparece para o jogador',
+	JSON.stringify(salaDoJogador.corpo).includes('atribuicoes'),
 	false
 );
+conferir('placar escondido enquanto a sessao esta aberta', salaDoJogador.corpo.ranking, null);
 
-const participante = await chamar(`/api/quizzes/${codigo}`, intruso.idToken);
-conferir('outro usuario carrega a sala -> 200', participante.status, 200);
-conferir('outro usuario: souDono', participante.corpo.sala.souDono, false);
+const respostaSemEntrar = await chamar(`/api/sessoes/${codigo}/respostas`, dono.idToken, {
+	metodo: 'POST',
+	corpo: { perguntaId: pergunta1.id, atribuicoes: [CERTO_MC] }
+});
+conferir('quem nao esta na sala nao responde -> 403', respostaSemEntrar.status, 403);
 
-const codigoInexistente = await chamar('/api/quizzes/ZZZZZZ', dono.idToken);
-conferir('codigo inexistente -> 404', codigoInexistente.status, 404);
+const respostaA1 = await chamar(`/api/sessoes/${codigo}/respostas`, jogadorA.idToken, {
+	metodo: 'POST',
+	corpo: { perguntaId: pergunta1.id, atribuicoes: [CERTO_MC] }
+});
+conferir('A responde a pergunta 1 -> 201', respostaA1.status, 201);
+conferir('A acertou (correcao no servidor)', respostaA1.corpo.resposta.acertos, 1);
 
-console.log('=== GABARITO (SO O DONO) ===');
-const gabaritoDono = await chamar(`/api/quizzes/${codigo}/gabaritos`, dono.idToken);
-conferir('dono -> 200', gabaritoDono.status, 200);
-conferir('quantidade de gabaritos', gabaritoDono.corpo.gabaritos.length, 5);
+const respostaB1 = await chamar(`/api/sessoes/${codigo}/respostas`, jogadorB.idToken, {
+	metodo: 'POST',
+	corpo: { perguntaId: pergunta1.id, atribuicoes: [ERRO_MC] }
+});
+conferir('B responde a pergunta 1 -> 201', respostaB1.status, 201);
+conferir('B errou', respostaB1.corpo.resposta.acertos, 0);
 
-const gabaritoIntruso = await chamar(`/api/quizzes/${codigo}/gabaritos`, intruso.idToken);
-conferir('intruso -> 403', gabaritoIntruso.status, 403);
+const reenvio = await chamar(`/api/sessoes/${codigo}/respostas`, jogadorA.idToken, {
+	metodo: 'POST',
+	corpo: { perguntaId: pergunta1.id, atribuicoes: [ERRO_MC] }
+});
+conferir('reenvio nao sobrescreve -> 200', reenvio.status, 200);
+conferir('reenvio devolve o que ja estava gravado', reenvio.corpo.resposta.acertos, 1);
+conferir('reenvio marcado como ja respondida', reenvio.corpo.resposta.jaRespondida, true);
 
-const gabaritoSemToken = await chamar(`/api/quizzes/${codigo}/gabaritos`, null);
-conferir('sem token -> 401', gabaritoSemToken.status, 401);
+const foraDoAr = await chamar(`/api/sessoes/${codigo}/respostas`, jogadorA.idToken, {
+	metodo: 'POST',
+	corpo: { perguntaId: pergunta2.id, atribuicoes: [{ itemId: 'falso', alvoId: 'escolhida' }] }
+});
+conferir('responder pergunta fora do ar -> 409', foraDoAr.status, 409);
 
-console.log('=== VALIDACAO DO PAYLOAD ===');
-const gabaritoFantasma = await chamar('/api/quizzes', dono.idToken, {
+const itemFantasma = await chamar(`/api/sessoes/${codigo}/respostas`, jogadorA.idToken, {
+	metodo: 'POST',
+	corpo: { perguntaId: pergunta1.id, atribuicoes: [{ itemId: id(), alvoId: 'marcada' }] }
+});
+conferir('resposta apontando item inexistente -> 400', itemFantasma.status, 400);
+
+console.log('\n=== PAINEL DO APRESENTADOR ===');
+const painel = await chamar(`/api/sessoes/${codigo}/controle`, dono.idToken);
+conferir('painel do dono -> 200', painel.status, 200);
+conferir('2 participantes', painel.corpo.participantes.length, 2);
+conferir('2 responderam a pergunta no ar', painel.corpo.responderamAtual, 2);
+conferir('gabarito disponivel para o apresentador', painel.corpo.gabaritoAtual.atribuicoes.length, 1);
+conferir('placar: A na frente', painel.corpo.ranking[0].acertos, 1);
+conferir('placar: B atras', painel.corpo.ranking[1].acertos, 0);
+
+const painelDoJogador = await chamar(`/api/sessoes/${codigo}/controle`, jogadorA.idToken);
+conferir('jogador nao acessa o painel -> 403', painelDoJogador.status, 403);
+
+const acaoInvalida = await chamar(`/api/sessoes/${codigo}/controle`, dono.idToken, {
+	metodo: 'POST',
+	corpo: { acao: 'explodir' }
+});
+conferir('acao invalida -> 400', acaoInvalida.status, 400);
+
+const avancou = await chamar(`/api/sessoes/${codigo}/controle`, dono.idToken, {
+	metodo: 'POST',
+	corpo: { acao: 'avancar' }
+});
+conferir('avancar -> 200', avancou.status, 200);
+conferir('pergunta no ar agora e a 2', avancou.corpo.sessao.perguntaAtual, 2);
+
+const salaDepoisDeAvancar = await chamar(`/api/sessoes/${codigo}`, jogadorA.idToken);
+conferir('jogador recebe a pergunta 2', salaDepoisDeAvancar.corpo.perguntas[0].id, pergunta2.id);
+
+const respostaA2 = await chamar(`/api/sessoes/${codigo}/respostas`, jogadorA.idToken, {
+	metodo: 'POST',
+	corpo: { perguntaId: pergunta2.id, atribuicoes: [{ itemId: 'falso', alvoId: 'escolhida' }] }
+});
+conferir('A acerta a pergunta 2', respostaA2.corpo.resposta.acertos, 1);
+
+const voltou = await chamar(`/api/sessoes/${codigo}/controle`, dono.idToken, {
+	metodo: 'POST',
+	corpo: { acao: 'voltar' }
+});
+conferir('voltar -> 200', voltou.status, 200);
+conferir('voltou para a pergunta 1', voltou.corpo.sessao.perguntaAtual, 1);
+
+for (let passo = 0; passo < 6; passo++) {
+	await chamar(`/api/sessoes/${codigo}/controle`, dono.idToken, {
+		metodo: 'POST',
+		corpo: { acao: 'avancar' }
+	});
+}
+const noFim = await chamar(`/api/sessoes/${codigo}/controle`, dono.idToken);
+conferir('nao passa da ultima pergunta', noFim.corpo.sessao.perguntaAtual, 5);
+
+const editComSessaoAberta = await chamar(`/api/quizzes/${quizId}`, dono.idToken, {
+	metodo: 'PUT',
+	corpo: { titulo: 'Nao pode', perguntas: paraAtualizar }
+});
+conferir('editar com sessao aberta -> 409', editComSessaoAberta.status, 409);
+
+const encerrou = await chamar(`/api/sessoes/${codigo}/controle`, dono.idToken, {
+	metodo: 'POST',
+	corpo: { acao: 'encerrar' }
+});
+conferir('encerrar -> 200', encerrou.status, 200);
+conferir('status encerrada', encerrou.corpo.sessao.status, 'encerrada');
+
+const respostaDepoisDeEncerrar = await chamar(`/api/sessoes/${codigo}/respostas`, jogadorB.idToken, {
+	metodo: 'POST',
+	corpo: { perguntaId: pergunta1.id, atribuicoes: [CERTO_MC] }
+});
+conferir('responder depois de encerrar -> 409', respostaDepoisDeEncerrar.status, 409);
+
+const finalDoJogador = await chamar(`/api/sessoes/${codigo}`, jogadorB.idToken);
+conferir('jogador ve o resumo final depois de encerrar', finalDoJogador.corpo.ranking !== null, true);
+conferir('resumo final ordenado: A primeiro', finalDoJogador.corpo.ranking[0].acertos, 2);
+conferir('resumo final: B com 0', finalDoJogador.corpo.ranking[1].acertos, 0);
+conferir('B sabe quem ele e no placar', finalDoJogador.corpo.participanteId !== null, true);
+
+console.log('\n=== SESSAO LIVRE (CADA UM NO SEU RITMO) ===');
+const sessaoLivre = await chamar('/api/sessoes', dono.idToken, {
+	metodo: 'POST',
+	corpo: { quizId, modo: 'livre' }
+});
+conferir('iniciar sessao livre -> 201', sessaoLivre.status, 201);
+const codigoLivre = sessaoLivre.corpo.sessao.codigo;
+conferir('modo gravado', sessaoLivre.corpo.sessao.modo, 'livre');
+
+await chamar(`/api/sessoes/${codigoLivre}/entrar`, jogadorA.idToken, { metodo: 'POST', corpo: {} });
+const salaLivre = await chamar(`/api/sessoes/${codigoLivre}`, jogadorA.idToken);
+conferir('modo livre entrega todas as perguntas', salaLivre.corpo.perguntas.length, 5);
+
+const pergunta5 = ordenado.corpo.perguntas[4];
+const livreTarde = await chamar(`/api/sessoes/${codigoLivre}/respostas`, jogadorA.idToken, {
 	metodo: 'POST',
 	corpo: {
-		titulo: 'Invalido',
-		perguntas: [
-			{
-				enunciado: 'Item que nao existe',
-				tipo: 'multipla-escolha',
-				conteudo: { tipo: 'multipla-escolha', opcoes, permiteMultiplas: false },
-				gabarito: { tipo: 'multipla-escolha', atribuicoes: [{ itemId: id(), alvoId: 'marcada' }] }
-			}
+		perguntaId: pergunta5.id,
+		atribuicoes: [
+			{ itemId: parA.id, alvoId: parA.idDireita },
+			{ itemId: parB.id, alvoId: parB.idDireita }
 		]
 	}
 });
-conferir('gabarito apontando item inexistente -> 400', gabaritoFantasma.status, 400);
+conferir('pode comecar pela ultima pergunta', livreTarde.status, 201);
+conferir('acertou os dois pares', livreTarde.corpo.resposta.acertos, 2);
 
-const semEnunciado = await chamar('/api/quizzes', dono.idToken, {
+const livrePrimeira = await chamar(`/api/sessoes/${codigoLivre}/respostas`, jogadorA.idToken, {
 	metodo: 'POST',
-	corpo: {
-		titulo: 'Invalido',
-		perguntas: [
-			{
-				enunciado: '   ',
-				tipo: 'verdadeiro-falso',
-				conteudo: { tipo: 'verdadeiro-falso' },
-				gabarito: { tipo: 'verdadeiro-falso', atribuicoes: [{ itemId: 'falso', alvoId: 'escolhida' }] }
-			}
-		]
-	}
+	corpo: { perguntaId: pergunta1.id, atribuicoes: [CERTO_MC] }
 });
-conferir('pergunta sem enunciado -> 400', semEnunciado.status, 400);
+conferir('pode responder a primeira depois', livrePrimeira.status, 201);
 
-const semTitulo = await chamar('/api/quizzes', dono.idToken, {
+const modoInvalido = await chamar('/api/sessoes', dono.idToken, {
 	metodo: 'POST',
-	corpo: { titulo: '', perguntas: corpo.perguntas }
+	corpo: { quizId, modo: 'corrida' }
 });
-conferir('sem titulo -> 400', semTitulo.status, 400);
+conferir('modo invalido -> 400', modoInvalido.status, 400);
 
-console.log('=== BANCO (via SQL) ===');
-const [linhas] = await sql`
-	select
-		(select count(*)::int from quizzes) as quizzes,
-		(select count(*)::int from perguntas) as perguntas,
-		(select count(*)::int from gabaritos) as gabaritos
+await chamar(`/api/sessoes/${codigoLivre}/controle`, dono.idToken, {
+	metodo: 'POST',
+	corpo: { acao: 'encerrar' }
+});
+
+console.log('\n=== BANCO (SQL) ===');
+const contagensDoQuiz = async () => {
+	const [linha] = await sql`
+		select
+			(select count(*)::int from perguntas where quiz_id = ${quizId}) as perguntas,
+			(select count(*)::int from gabaritos where quiz_id = ${quizId}) as gabaritos,
+			(select count(*)::int from sessoes where quiz_id = ${quizId}) as sessoes,
+			(select count(*)::int from participantes p
+				join sessoes s on s.id = p.sessao_id where s.quiz_id = ${quizId}) as participantes,
+			(select count(*)::int from respostas r
+				join sessoes s on s.id = r.sessao_id where s.quiz_id = ${quizId}) as respostas
+	`;
+	return linha;
+};
+
+const contagens = await contagensDoQuiz();
+conferir('5 perguntas deste quiz', contagens.perguntas, 5);
+conferir('5 gabaritos deste quiz', contagens.gabaritos, 5);
+conferir('2 sessoes deste quiz', contagens.sessoes, 2);
+conferir('3 participantes (2 na conduzida + 1 na livre)', contagens.participantes, 3);
+conferir('5 respostas (3 na conduzida + 2 na livre)', contagens.respostas, 5);
+
+const [sessaoBanco] = await sql`
+	select status, modo, pergunta_atual from sessoes order by aberta_em asc limit 1
 `;
-conferir('1 quiz gravado', linhas.quizzes, 1);
-conferir('5 perguntas gravadas', linhas.perguntas, 5);
-conferir('5 gabaritos gravados', linhas.gabaritos, 5);
+conferir('sessao conduzida encerrada no banco', sessaoBanco.status, 'encerrada');
+conferir('sessao conduzida parada na ultima pergunta', sessaoBanco.pergunta_atual, 5);
 
-const [primeira] = await sql`select tipo, conteudo from perguntas where ordem = 1`;
-conferir('conteudo jsonb da 1a pergunta', primeira.conteudo.opcoes.length, 3);
-conferir('tipo da 1a pergunta', primeira.tipo, 'multipla-escolha');
-
-const [gabaritoSalvo] = await sql`
-	select g.atribuicoes from gabaritos g
-	join perguntas p on p.id = g.pergunta_id
-	where p.ordem = 5
-`;
-conferir('gabarito de correspondencia no banco', gabaritoSalvo.atribuicoes.length, 2);
-conferir(
-	'gabarito aponta para a coluna B certa',
-	gabaritoSalvo.atribuicoes[0].alvoId,
-	parA.idDireita
-);
-
-console.log('=== LIMPEZA ===');
-await sql`delete from quizzes where codigo = ${codigo}`;
-const [depois] = await sql`
-	select
-		(select count(*)::int from quizzes) as quizzes,
-		(select count(*)::int from perguntas) as perguntas,
-		(select count(*)::int from gabaritos) as gabaritos
-`;
-conferir('cascade apagou as perguntas', depois.perguntas, 0);
-conferir('cascade apagou os gabaritos', depois.gabaritos, 0);
-conferir('tabela quizzes limpa', depois.quizzes, 0);
-
+console.log('\n=== LIMPEZA ===');
+await sql`delete from quizzes where id = ${quizId}`;
+const depois = await contagensDoQuiz();
+conferir('cascade limpou tudo deste quiz', Object.values(depois), [0, 0, 0, 0, 0]);
+conferir('nao sobrou quiz de teste', (await sql`select count(*)::int as n from quizzes where dono_email like 'teste-api-%'`)[0].n, 0);
 conferir('usuario dono removido', await apagarUsuario(dono.idToken), true);
-conferir('usuario intruso removido', await apagarUsuario(intruso.idToken), true);
+conferir('usuario A removido', await apagarUsuario(jogadorA.idToken), true);
+conferir('usuario B removido', await apagarUsuario(jogadorB.idToken), true);
 
 await sql.end();
-console.log(`\n### RESULTADO API: ${falhas === 0 ? 'TODOS OS CASOS PASSARAM' : falhas + ' FALHA(S)'} ###`);
+console.log(`\n### RESULTADO: ${falhas === 0 ? 'TODOS OS CASOS PASSARAM' : falhas + ' FALHA(S)'} ###`);
 process.exit(falhas === 0 ? 0 : 1);

@@ -1,21 +1,19 @@
 import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 import type { Atribuicao, ConteudoPergunta, TipoPergunta } from '$lib/quiz/tipos';
 
+/** O questionário em si. O código da sala NÃO fica aqui: ele nasce com a sessão. */
 export const quizzes = pgTable(
 	'quizzes',
 	{
 		id: uuid('id').primaryKey().defaultRandom(),
 		titulo: text('titulo').notNull(),
-		codigo: varchar('codigo', { length: 6 }).notNull(),
 		donoUid: text('dono_uid').notNull(),
 		donoEmail: text('dono_email'),
 		totalPerguntas: integer('total_perguntas').notNull().default(0),
-		criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow()
+		criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+		atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow()
 	},
-	(tabela) => [
-		uniqueIndex('quizzes_codigo_unico').on(tabela.codigo),
-		index('quizzes_dono_idx').on(tabela.donoUid)
-	]
+	(tabela) => [index('quizzes_dono_idx').on(tabela.donoUid)]
 );
 
 /** O conteúdo da pergunta (opções/itens/pares) fica em JSON; a resposta certa NÃO fica aqui. */
@@ -47,3 +45,77 @@ export const gabaritos = pgTable('gabaritos', {
 	tipo: text('tipo').$type<TipoPergunta>().notNull(),
 	atribuicoes: jsonb('atribuicoes').$type<Atribuicao[]>().notNull()
 });
+
+export const MODOS_SESSAO = ['conduzida', 'livre'] as const;
+export type ModoSessao = (typeof MODOS_SESSAO)[number];
+
+export const STATUS_SESSAO = ['aberta', 'encerrada'] as const;
+export type StatusSessao = (typeof STATUS_SESSAO)[number];
+
+/**
+ * A sessão é a rodada ao vivo: é ela que tem o código que os participantes digitam.
+ * `perguntaAtual` (ordem) só manda no modo `conduzida`.
+ */
+export const sessoes = pgTable(
+	'sessoes',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		quizId: uuid('quiz_id')
+			.notNull()
+			.references(() => quizzes.id, { onDelete: 'cascade' }),
+		donoUid: text('dono_uid').notNull(),
+		codigo: varchar('codigo', { length: 6 }).notNull(),
+		modo: text('modo').$type<ModoSessao>().notNull().default('conduzida'),
+		status: text('status').$type<StatusSessao>().notNull().default('aberta'),
+		perguntaAtual: integer('pergunta_atual').notNull().default(1),
+		abertaEm: timestamp('aberta_em', { withTimezone: true }).notNull().defaultNow(),
+		encerradaEm: timestamp('encerrada_em', { withTimezone: true })
+	},
+	(tabela) => [
+		uniqueIndex('sessoes_codigo_unico').on(tabela.codigo),
+		index('sessoes_quiz_idx').on(tabela.quizId),
+		index('sessoes_dono_idx').on(tabela.donoUid)
+	]
+);
+
+export const participantes = pgTable(
+	'participantes',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		sessaoId: uuid('sessao_id')
+			.notNull()
+			.references(() => sessoes.id, { onDelete: 'cascade' }),
+		uid: text('uid').notNull(),
+		nome: text('nome').notNull(),
+		entrouEm: timestamp('entrou_em', { withTimezone: true }).notNull().defaultNow()
+	},
+	(tabela) => [uniqueIndex('participantes_sessao_uid_unico').on(tabela.sessaoId, tabela.uid)]
+);
+
+/** Uma resposta por pergunta por participante; a pontuação é calculada no servidor. */
+export const respostas = pgTable(
+	'respostas',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		sessaoId: uuid('sessao_id')
+			.notNull()
+			.references(() => sessoes.id, { onDelete: 'cascade' }),
+		perguntaId: uuid('pergunta_id')
+			.notNull()
+			.references(() => perguntas.id, { onDelete: 'cascade' }),
+		participanteId: uuid('participante_id')
+			.notNull()
+			.references(() => participantes.id, { onDelete: 'cascade' }),
+		atribuicoes: jsonb('atribuicoes').$type<Atribuicao[]>().notNull(),
+		acertos: integer('acertos').notNull(),
+		total: integer('total').notNull(),
+		respondidaEm: timestamp('respondida_em', { withTimezone: true }).notNull().defaultNow()
+	},
+	(tabela) => [
+		uniqueIndex('respostas_sessao_pergunta_participante_unico').on(
+			tabela.sessaoId,
+			tabela.perguntaId,
+			tabela.participanteId
+		)
+	]
+);

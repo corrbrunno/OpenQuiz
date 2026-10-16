@@ -17,7 +17,9 @@
 	<Card.Root>
 		<Card.Header>
 			<Card.Title>Entrar em uma sala</Card.Title>
-			<Card.Description>Use o código informado por quem criou o quiz.</Card.Description>
+			<Card.Description>
+				Use o código que quem criou o quiz mostrou ao iniciar a sessão.
+			</Card.Description>
 		</Card.Header>
 		<Card.Content class="flex flex-col gap-3">
 			{#if authState.carregando}

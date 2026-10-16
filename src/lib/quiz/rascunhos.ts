@@ -6,6 +6,7 @@ import {
 	type GabaritoConfig,
 	type GabaritoDe,
 	type ParCorrespondencia,
+	type PerguntaSalva,
 	type RespostaComum,
 	type TipoPergunta
 } from './tipos';
@@ -15,8 +16,12 @@ import { novoId, novoItem, novoPar } from './utils';
 export interface RascunhoPergunta {
 	id: string;
 	enunciado: string;
+	/** Arquivo escolhido agora (opcional). */
 	imagem: File | null;
+	/** Pré-visualização local do arquivo escolhido agora. */
 	previa: string | null;
+	/** Imagem já salva no servidor — mantida quando o editor não troca o arquivo. */
+	imagemUrl: string | null;
 	conteudo: ConteudoPergunta;
 	gabarito: GabaritoConfig;
 }
@@ -73,8 +78,71 @@ export function novaPergunta(tipo: TipoPergunta = 'multipla-escolha'): RascunhoP
 		enunciado: '',
 		imagem: null,
 		previa: null,
+		imagemUrl: null,
 		conteudo: conteudoPadrao(tipo),
 		gabarito: gabaritoPadrao(tipo)
+	};
+}
+
+/**
+ * Caminho de volta: do formato comum (banco) para o estado de configuração do editor.
+ * É o inverso de `montarGabarito` — sem isso, editar um questionário perderia a resposta certa.
+ */
+export function desmontarGabarito(
+	conteudo: ConteudoPergunta,
+	gabarito: RespostaComum | null
+): GabaritoConfig {
+	const atribuicoes = gabarito?.atribuicoes ?? [];
+
+	switch (conteudo.tipo) {
+		case 'multipla-escolha':
+			return {
+				tipo: conteudo.tipo,
+				corretas: atribuicoes
+					.filter((atribuicao) => atribuicao.alvoId === ALVO_MARCADA)
+					.map((atribuicao) => atribuicao.itemId)
+			};
+		case 'verdadeiro-falso': {
+			const escolhida = atribuicoes.find((atribuicao) => atribuicao.alvoId === ALVO_ESCOLHIDA);
+			return { tipo: conteudo.tipo, correta: escolhida?.itemId === 'falso' ? 'falso' : 'verdadeiro' };
+		}
+		case 'categorizar':
+			return {
+				tipo: conteudo.tipo,
+				associacoes: Object.fromEntries(
+					atribuicoes.map((atribuicao) => [atribuicao.itemId, atribuicao.alvoId])
+				)
+			};
+		case 'reordenar':
+			return { tipo: conteudo.tipo };
+		case 'correspondencia':
+			return { tipo: conteudo.tipo };
+	}
+}
+
+/** Reconstrói o rascunho do editor a partir de uma pergunta salva (usado ao editar). */
+export function rascunhoDePerguntaSalva(
+	pergunta: PerguntaSalva,
+	gabarito: RespostaComum | null
+): RascunhoPergunta {
+	const conteudo = structuredClone(pergunta.conteudo);
+
+	// No reordenar, a ordem certa é o gabarito: reordena os itens como estavam ao salvar.
+	if (conteudo.tipo === 'reordenar' && gabarito) {
+		const posicao = new Map(gabarito.atribuicoes.map((a) => [a.itemId, Number(a.alvoId)]));
+		conteudo.itens = [...conteudo.itens].sort(
+			(a, b) => (posicao.get(a.id) ?? 0) - (posicao.get(b.id) ?? 0)
+		);
+	}
+
+	return {
+		id: pergunta.id,
+		enunciado: pergunta.enunciado,
+		imagem: null,
+		previa: null,
+		imagemUrl: pergunta.imagemUrl,
+		conteudo,
+		gabarito: desmontarGabarito(conteudo, gabarito)
 	};
 }
 
@@ -170,6 +238,45 @@ export function novoRascunhoResposta(conteudo: ConteudoPergunta): RascunhoRespos
 			return { tipo: conteudo.tipo, ordem: conteudo.itens.map((item) => item.id) };
 		case 'correspondencia':
 			return { tipo: conteudo.tipo, associacoes: {} };
+	}
+}
+
+/**
+ * Inverso de `montarResposta`: reconstrói o estado do jogador a partir das atribuições já gravadas,
+ * para a tela mostrar a resposta que ele deu (e não uma tela em branco).
+ */
+export function estadoDeAtribuicoes(
+	conteudo: ConteudoPergunta,
+	atribuicoes: Atribuicao[] | null | undefined
+): RascunhoResposta {
+	const lista = atribuicoes ?? [];
+	const porItem = new Map(lista.map((atribuicao) => [atribuicao.itemId, atribuicao.alvoId]));
+
+	switch (conteudo.tipo) {
+		case 'multipla-escolha':
+			return {
+				tipo: conteudo.tipo,
+				marcadas: lista
+					.filter((atribuicao) => atribuicao.alvoId === ALVO_MARCADA)
+					.map((atribuicao) => atribuicao.itemId)
+			};
+		case 'verdadeiro-falso': {
+			const escolhida = lista.find((atribuicao) => atribuicao.alvoId === ALVO_ESCOLHIDA);
+			return {
+				tipo: conteudo.tipo,
+				escolha: escolhida?.itemId === 'falso' ? 'falso' : escolhida ? 'verdadeiro' : null
+			};
+		}
+		case 'categorizar':
+		case 'correspondencia':
+			return { tipo: conteudo.tipo, associacoes: Object.fromEntries(porItem) };
+		case 'reordenar':
+			return {
+				tipo: conteudo.tipo,
+				ordem: [...conteudo.itens]
+					.sort((a, b) => Number(porItem.get(a.id) ?? 0) - Number(porItem.get(b.id) ?? 0))
+					.map((item) => item.id)
+			};
 	}
 }
 

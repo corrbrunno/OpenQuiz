@@ -1,11 +1,12 @@
 <script lang="ts">
-	import CheckIcon from '@lucide/svelte/icons/check';
-	import XIcon from '@lucide/svelte/icons/x';
-	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
-	import { corrigir, resumoCorrecao } from '$lib/quiz/correcao';
-	import { rotuloAlvo, rotuloItem } from '$lib/quiz/rotulos';
-	import { ROTULOS_TIPO, type Correcao, type PerguntaSalva, type RespostaComum } from '$lib/quiz/tipos';
+	import { estadoDeAtribuicoes, type RascunhoResposta } from '$lib/quiz/rascunhos';
+	import {
+		ROTULOS_TIPO,
+		type Atribuicao,
+		type PerguntaSalva,
+		type RespostaComum
+	} from '$lib/quiz/tipos';
 	import ResponderCategorizar from './respostas/ResponderCategorizar.svelte';
 	import ResponderCorrespondencia from './respostas/ResponderCorrespondencia.svelte';
 	import ResponderMultiplaEscolha from './respostas/ResponderMultiplaEscolha.svelte';
@@ -14,25 +15,24 @@
 
 	let {
 		pergunta,
-		gabarito = null
-	}: { pergunta: PerguntaSalva; gabarito?: RespostaComum | null } = $props();
+		responder,
+		atribuicoesIniciais = null,
+		resultado = null,
+		desabilitado = false
+	}: {
+		pergunta: PerguntaSalva;
+		responder: (resposta: RespostaComum) => void;
+		atribuicoesIniciais?: Atribuicao[] | null;
+		resultado?: { acertos: number; total: number } | null;
+		desabilitado?: boolean;
+	} = $props();
 
-	let resposta = $state<RespostaComum | null>(null);
-	let correcao = $state<Correcao | null>(null);
-	let resumo = $state('');
-
-	function registrar(nova: RespostaComum) {
-		resposta = nova;
-		correcao = null;
-		resumo = '';
+	// A pergunta não corrige nada: a correção vem do servidor (o gabarito não sai de lá).
+	function estadoInicialDaPergunta(): RascunhoResposta {
+		return estadoDeAtribuicoes(pergunta.conteudo, atribuicoesIniciais);
 	}
 
-	function conferir() {
-		if (!gabarito) return;
-
-		correcao = corrigir(resposta, gabarito);
-		resumo = resumoCorrecao(correcao);
-	}
+	const estadoInicial: RascunhoResposta | null = estadoInicialDaPergunta();
 </script>
 
 <Card.Root>
@@ -50,54 +50,34 @@
 			/>
 		{/if}
 
-		<p>{pergunta.enunciado}</p>
+		<p class="text-lg">{pergunta.enunciado}</p>
 
 		{#if pergunta.conteudo.tipo === 'multipla-escolha'}
-			<ResponderMultiplaEscolha {pergunta} responder={registrar} />
+			<ResponderMultiplaEscolha {pergunta} {responder} {estadoInicial} {desabilitado} />
 		{:else if pergunta.conteudo.tipo === 'verdadeiro-falso'}
-			<ResponderVerdadeiroFalso {pergunta} responder={registrar} />
+			<ResponderVerdadeiroFalso {pergunta} {responder} {estadoInicial} {desabilitado} />
 		{:else if pergunta.conteudo.tipo === 'categorizar'}
-			<ResponderCategorizar {pergunta} responder={registrar} />
+			<ResponderCategorizar {pergunta} {responder} {estadoInicial} {desabilitado} />
 		{:else if pergunta.conteudo.tipo === 'reordenar'}
-			<ResponderReordenar {pergunta} responder={registrar} />
+			<ResponderReordenar {pergunta} {responder} {estadoInicial} {desabilitado} />
 		{:else if pergunta.conteudo.tipo === 'correspondencia'}
-			<ResponderCorrespondencia {pergunta} responder={registrar} />
+			<ResponderCorrespondencia {pergunta} {responder} {estadoInicial} {desabilitado} />
 		{/if}
 
-		{#if gabarito}
-			<div class="flex flex-wrap items-center gap-3 border-t pt-4">
-				<Button size="sm" disabled={!resposta} onclick={conferir}>Corrigir</Button>
-				{#if correcao}
-					<span class="text-sm font-medium">{resumo}</span>
-				{/if}
+		{#if resultado}
+			<div class="flex items-center gap-2 border-t pt-4">
+				<span
+					class="rounded-md px-2 py-1 text-sm font-semibold {resultado.acertos === resultado.total
+						? 'bg-emerald-500/15 text-emerald-600'
+						: 'bg-amber-500/15 text-amber-600'}"
+				>
+					{resultado.acertos === resultado.total ? 'Acertou tudo' : 'Resposta registrada'}
+				</span>
+				<span class="text-muted-foreground text-sm">
+					{resultado.acertos} de {resultado.total}
+					{resultado.total === 1 ? 'item correto' : 'itens corretos'}
+				</span>
 			</div>
-
-			{#if correcao}
-				<ul class="flex flex-col gap-1 text-sm">
-					{#each correcao.itens as item (item.itemId)}
-						<li class="flex items-start gap-2">
-							{#if item.ok}
-								<CheckIcon class="mt-0.5 size-4 shrink-0" />
-							{:else}
-								<XIcon class="text-destructive mt-0.5 size-4 shrink-0" />
-							{/if}
-							<span>
-								{rotuloItem(pergunta.conteudo, item.itemId)}
-								{#if !item.ok}
-									<span class="text-muted-foreground">
-										— esperado: {item.esperado ? rotuloAlvo(pergunta.conteudo, item.esperado) : 'nada'}
-										· sua resposta: {item.obtido ? rotuloAlvo(pergunta.conteudo, item.obtido) : 'em branco'}
-									</span>
-								{/if}
-							</span>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		{:else}
-			<p class="text-muted-foreground border-t pt-4 text-xs">
-				Correção indisponível: o gabarito só é legível pelo dono do questionário.
-			</p>
 		{/if}
 	</Card.Content>
 </Card.Root>

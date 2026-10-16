@@ -2,14 +2,21 @@
 	import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import { Button } from '$lib/components/ui/button';
-	import { montarResposta } from '$lib/quiz/rascunhos';
+	import { montarResposta, type RascunhoResposta } from '$lib/quiz/rascunhos';
 	import type { ConteudoDe, PerguntaSalva, RespostaComum } from '$lib/quiz/tipos';
 	import { embaralharComSemente, moverItem } from '$lib/quiz/utils';
 
 	let {
 		pergunta,
-		responder
-	}: { pergunta: PerguntaSalva; responder: (resposta: RespostaComum) => void } = $props();
+		responder,
+		estadoInicial = null,
+		desabilitado = false
+	}: {
+		pergunta: PerguntaSalva;
+		responder: (resposta: RespostaComum) => void;
+		estadoInicial?: RascunhoResposta | null;
+		desabilitado?: boolean;
+	} = $props();
 
 	const conteudo = $derived(pergunta.conteudo as ConteudoDe<'reordenar'>);
 	const textos = $derived(new Map(conteudo.itens.map((item) => [item.id, item.texto])));
@@ -20,10 +27,18 @@
 		)
 	);
 
-	let ordemEscolhida = $state<string[] | null>(null);
+	function ordemInicialEscolhida(): string[] | null {
+		return estadoInicial?.tipo === 'reordenar' && estadoInicial.ordem.length > 0
+			? [...estadoInicial.ordem]
+			: null;
+	}
+
+	let ordemEscolhida = $state<string[] | null>(ordemInicialEscolhida());
 	const ordem = $derived(ordemEscolhida ?? ordemInicial);
 
 	function mover(indice: number, delta: number) {
+		if (desabilitado) return;
+
 		const atual = [...ordem];
 		moverItem(atual, indice, indice + delta);
 		ordemEscolhida = atual;
@@ -41,7 +56,7 @@
 			<Button
 				variant="ghost"
 				size="icon"
-				disabled={indice === 0}
+				disabled={desabilitado || indice === 0}
 				onclick={() => mover(indice, -1)}
 				aria-label="Mover para cima"
 			>
@@ -50,7 +65,7 @@
 			<Button
 				variant="ghost"
 				size="icon"
-				disabled={indice === ordem.length - 1}
+				disabled={desabilitado || indice === ordem.length - 1}
 				onclick={() => mover(indice, 1)}
 				aria-label="Mover para baixo"
 			>
@@ -63,6 +78,7 @@
 		variant="outline"
 		size="sm"
 		class="w-fit"
+		disabled={desabilitado}
 		onclick={() => responder(montarResposta(pergunta.id, { tipo: 'reordenar', ordem: [...ordem] }))}
 	>
 		Confirmar esta ordem

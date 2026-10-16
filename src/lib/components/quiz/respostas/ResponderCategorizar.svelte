@@ -1,14 +1,25 @@
 <script lang="ts">
-	import { montarResposta } from '$lib/quiz/rascunhos';
+	import { montarResposta, type RascunhoResposta } from '$lib/quiz/rascunhos';
 	import type { ConteudoDe, PerguntaSalva, RespostaComum } from '$lib/quiz/tipos';
 
 	let {
 		pergunta,
-		responder
-	}: { pergunta: PerguntaSalva; responder: (resposta: RespostaComum) => void } = $props();
+		responder,
+		estadoInicial = null,
+		desabilitado = false
+	}: {
+		pergunta: PerguntaSalva;
+		responder: (resposta: RespostaComum) => void;
+		estadoInicial?: RascunhoResposta | null;
+		desabilitado?: boolean;
+	} = $props();
 
 	const conteudo = $derived(pergunta.conteudo as ConteudoDe<'categorizar'>);
-	let associacoes = $state<Record<string, string>>({});
+	function associacoesIniciais(): Record<string, string> {
+		return estadoInicial?.tipo === 'categorizar' ? { ...estadoInicial.associacoes } : {};
+	}
+
+	let associacoes = $state<Record<string, string>>(associacoesIniciais());
 
 	function associar(itemId: string, evento: Event) {
 		const alvo = (evento.currentTarget as HTMLSelectElement).value;
@@ -16,7 +27,9 @@
 		if (alvo) associacoes[itemId] = alvo;
 		else delete associacoes[itemId];
 
-		responder(montarResposta(pergunta.id, { tipo: 'categorizar', associacoes: { ...associacoes } }));
+		responder(
+			montarResposta(pergunta.id, { tipo: 'categorizar', associacoes: { ...associacoes } })
+		);
 	}
 </script>
 
@@ -28,6 +41,7 @@
 				class="border-input bg-background h-9 rounded-md border px-2 text-sm"
 				value={associacoes[item.id] ?? ''}
 				onchange={(evento) => associar(item.id, evento)}
+				disabled={desabilitado}
 				aria-label={`Categoria de ${item.texto}`}
 			>
 				<option value="">escolha…</option>

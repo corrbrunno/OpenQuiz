@@ -1,18 +1,60 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import EditorPergunta from '$lib/components/quiz/EditorPergunta.svelte';
-	import { mensagemDeErro, salvarQuestionario } from '$lib/client/quiz';
+	import { mensagemDeErro } from '$lib/client/api';
+	import { atualizarQuestionario, carregarQuestionario, criarQuestionario } from '$lib/client/quiz';
 	import { authState } from '$lib/client/stores/auth.svelte';
-	import { novaPergunta, validarPergunta, type RascunhoPergunta } from '$lib/quiz/rascunhos';
+	import {
+		novaPergunta,
+		rascunhoDePerguntaSalva,
+		validarPergunta,
+		type RascunhoPergunta
+	} from '$lib/quiz/rascunhos';
+
+	const editandoId = $derived(page.url.searchParams.get('editar') ?? '');
 
 	let titulo = $state('');
 	let perguntas = $state<RascunhoPergunta[]>([novaPergunta()]);
 	let salvando = $state(false);
 	let erro = $state('');
-	let sucesso = $state('');
+	let carregando = $state(false);
+
+	$effect(() => {
+		const usuario = authState.user;
+		const id = editandoId;
+
+		if (!browser || !usuario || !id) return;
+
+		carregando = true;
+		carregarQuestionario(id, usuario)
+			.then((dados) => {
+				titulo = dados.quiz.titulo;
+				perguntas = dados.perguntas.map((pergunta) =>
+					rascunhoDePerguntaSalva(
+						{
+							id: pergunta.id,
+							ordem: pergunta.ordem,
+							enunciado: pergunta.enunciado,
+							imagemUrl: pergunta.imagemUrl,
+							tipo: pergunta.tipo,
+							conteudo: pergunta.conteudo
+						},
+						pergunta.gabarito
+					)
+				);
+			})
+			.catch((falha) => {
+				erro = mensagemDeErro(falha);
+			})
+			.finally(() => {
+				carregando = false;
+			});
+	});
 
 	function adicionarPergunta() {
 		perguntas.push(novaPergunta());
@@ -25,7 +67,6 @@
 
 	async function salvar() {
 		erro = '';
-		sucesso = '';
 
 		if (!titulo.trim()) {
 			erro = 'Dê um título ao questionário.';
@@ -52,10 +93,10 @@
 
 		salvando = true;
 		try {
-			const resultado = await salvarQuestionario(titulo, perguntas, usuario);
-			sucesso = `Questionário salvo. Código da sala: ${resultado.codigo}`;
-			titulo = '';
-			perguntas = [novaPergunta()];
+			if (editandoId) await atualizarQuestionario(editandoId, titulo, perguntas, usuario);
+			else await criarQuestionario(titulo, perguntas, usuario);
+
+			await goto('/meus-quizzes');
 		} catch (falha) {
 			erro = mensagemDeErro(falha);
 		} finally {
@@ -66,17 +107,19 @@
 
 <div class="flex flex-col gap-6">
 	<header class="flex flex-col gap-2">
-		<h1 class="text-3xl font-bold tracking-tight">Criar questionário</h1>
+		<h1 class="text-3xl font-bold tracking-tight">
+			{editandoId ? 'Editar questionário' : 'Criar questionário'}
+		</h1>
 		<p class="text-muted-foreground text-sm">
 			Escolha o tipo de cada pergunta: múltipla escolha, verdadeiro ou falso, categorizar, reordenar ou
 			tabela de correspondência. Cada pergunta aceita uma imagem.
 		</p>
 	</header>
 
-	{#if authState.carregando}
+	{#if authState.carregando || carregando}
 		<Card.Root>
 			<Card.Content class="pt-6">
-				<p class="text-muted-foreground text-sm">Verificando sua sessão…</p>
+				<p class="text-muted-foreground text-sm">Carregando…</p>
 			</Card.Content>
 		</Card.Root>
 	{:else if !authState.user}
@@ -122,15 +165,13 @@
 		<div class="flex flex-wrap gap-2">
 			<Button variant="outline" onclick={adicionarPergunta}>Adicionar pergunta</Button>
 			<Button disabled={salvando} onclick={salvar}>
-				{salvando ? 'Salvando…' : 'Salvar questionário'}
+				{salvando ? 'Salvando…' : editandoId ? 'Salvar alterações' : 'Salvar questionário'}
 			</Button>
+			<Button variant="ghost" href="/meus-quizzes">Meus questionários</Button>
 		</div>
 
 		{#if erro}
 			<p class="text-destructive text-sm" role="alert">{erro}</p>
-		{/if}
-		{#if sucesso}
-			<p class="text-sm font-medium" role="status">{sucesso}</p>
 		{/if}
 	{/if}
 </div>

@@ -77,9 +77,9 @@
 					onchange={escolherImagem}
 				/>
 			</label>
-			{#if rascunho.previa}
+			{#if rascunho.previa ?? rascunho.imagemUrl}
 				<img
-					src={rascunho.previa}
+					src={rascunho.previa ?? rascunho.imagemUrl ?? ''}
 					alt={`Pré-visualização da imagem da pergunta ${indice + 1}`}
 					class="max-h-48 w-fit rounded-md border object-contain"
 				/>

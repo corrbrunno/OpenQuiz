@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { getDb, isDbConfigured } from '$lib/server/db';
 import { gabaritos, perguntas, quizzes } from '$lib/server/db/schema';
 import { usuarioDaRequisicao } from '$lib/server/auth';
@@ -7,20 +7,32 @@ import { validarPerguntaRecebida, type PerguntaRecebida } from '$lib/quiz/valida
 import type { TipoPergunta } from '$lib/quiz/tipos';
 import type { RequestHandler } from './$types';
 
-const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const TENTATIVAS_CODIGO = 5;
 const MAXIMO_PERGUNTAS = 30;
 
-function gerarCodigo(tamanho = 6): string {
-	const valores = new Uint32Array(tamanho);
-	crypto.getRandomValues(valores);
-	return Array.from(valores, (valor) => ALFABETO[valor % ALFABETO.length]).join('');
-}
+/** Meus questionários (só os do dono autenticado). O código da sala não aparece aqui. */
+export const GET: RequestHandler = async ({ request }) => {
+	if (!isDbConfigured()) {
+		return json({ erro: 'DATABASE_URL não configurada no servidor.' }, { status: 500 });
+	}
 
-function codigoDuplicado(falha: unknown): boolean {
-	const erro = falha as { code?: string; constraint_name?: string };
-	return erro?.code === '23505' && erro?.constraint_name === 'quizzes_codigo_unico';
-}
+	const usuario = await usuarioDaRequisicao(request);
+	if (!usuario) return json({ erro: 'Entre na sua conta para ver seus questionários.' }, { status: 401 });
+
+	const db = getDb();
+	const lista = await db
+		.select({
+			id: quizzes.id,
+			titulo: quizzes.titulo,
+			totalPerguntas: quizzes.totalPerguntas,
+			criadoEm: quizzes.criadoEm,
+			atualizadoEm: quizzes.atualizadoEm
+		})
+		.from(quizzes)
+		.where(eq(quizzes.donoUid, usuario.uid))
+		.orderBy(desc(quizzes.atualizadoEm));
+
+	return json({ quizzes: lista });
+};
 
 export const POST: RequestHandler = async ({ request }) => {
 	if (!isDbConfigured()) {
@@ -52,77 +64,42 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	const db = getDb();
+	const salvo = await db.transaction(async (tx) => {
+		const [quiz] = await tx
+			.insert(quizzes)
+			.values({
+				titulo,
+				donoUid: usuario.uid,
+				donoEmail: usuario.email,
+				totalPerguntas: recebidas.length
+			})
+			.returning({ id: quizzes.id });
 
-	for (let tentativa = 1; tentativa <= TENTATIVAS_CODIGO; tentativa++) {
-		const codigo = gerarCodigo();
+		for (const [indice, recebida] of recebidas.entries()) {
+			const conteudo = recebida.conteudo!;
+			const [pergunta] = await tx
+				.insert(perguntas)
+				.values({
+					quizId: quiz.id,
+					ordem: indice + 1,
+					enunciado: recebida.enunciado!.trim(),
+					imagemUrl: recebida.imagemUrl ?? null,
+					tipo: conteudo.tipo,
+					conteudo
+				})
+				.returning({ id: perguntas.id });
 
-		try {
-			const salvo = await db.transaction(async (tx) => {
-				const [quiz] = await tx
-					.insert(quizzes)
-					.values({
-						titulo,
-						codigo,
-						donoUid: usuario.uid,
-						donoEmail: usuario.email,
-						totalPerguntas: recebidas.length
-					})
-					.returning({ id: quizzes.id, codigo: quizzes.codigo });
-
-				for (const [indice, recebida] of recebidas.entries()) {
-					const conteudo = recebida.conteudo!;
-					const [pergunta] = await tx
-						.insert(perguntas)
-						.values({
-							quizId: quiz.id,
-							ordem: indice + 1,
-							enunciado: recebida.enunciado!.trim(),
-							imagemUrl: recebida.imagemUrl ?? null,
-							tipo: conteudo.tipo,
-							conteudo
-						})
-						.returning({ id: perguntas.id });
-
-					await tx.insert(gabaritos).values({
-						perguntaId: pergunta.id,
-						quizId: quiz.id,
-						donoUid: usuario.uid,
-						tipo: (recebida.gabarito?.tipo ?? conteudo.tipo) as TipoPergunta,
-						atribuicoes: recebida.gabarito!.atribuicoes!
-					});
-				}
-
-				return quiz;
+			await tx.insert(gabaritos).values({
+				perguntaId: pergunta.id,
+				quizId: quiz.id,
+				donoUid: usuario.uid,
+				tipo: (recebida.gabarito?.tipo ?? conteudo.tipo) as TipoPergunta,
+				atribuicoes: recebida.gabarito!.atribuicoes!
 			});
-
-			return json({ id: salvo.id, codigo: salvo.codigo }, { status: 201 });
-		} catch (falha) {
-			if (codigoDuplicado(falha) && tentativa < TENTATIVAS_CODIGO) continue;
-			if (codigoDuplicado(falha)) {
-				return json(
-					{ erro: 'Não foi possível reservar um código de sala livre. Tente novamente.' },
-					{ status: 503 }
-				);
-			}
-			throw falha;
 		}
-	}
 
-	return json({ erro: 'Não foi possível salvar o questionário.' }, { status: 500 });
-};
+		return quiz;
+	});
 
-/** Perguntas já salvas, para reuso em telas de edição futuras. */
-export const GET: RequestHandler = async ({ request, url }) => {
-	const usuario = await usuarioDaRequisicao(request);
-	if (!usuario) return json({ erro: 'Entre na sua conta.' }, { status: 401 });
-	if (!isDbConfigured()) return json({ erro: 'DATABASE_URL não configurada.' }, { status: 500 });
-
-	const codigo = (url.searchParams.get('codigo') ?? '').trim().toUpperCase();
-	if (!codigo) return json({ erro: 'Informe o código da sala.' }, { status: 400 });
-
-	const db = getDb();
-	const [quiz] = await db.select().from(quizzes).where(eq(quizzes.codigo, codigo)).limit(1);
-	if (!quiz) return json({ erro: 'Sala não encontrada.' }, { status: 404 });
-
-	return json({ id: quiz.id, codigo: quiz.codigo, titulo: quiz.titulo, souDono: quiz.donoUid === usuario.uid });
+	return json({ id: salvo.id }, { status: 201 });
 };

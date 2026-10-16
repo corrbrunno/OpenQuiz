@@ -19,7 +19,8 @@
 		<Badge variant="secondary" class="w-fit">SvelteKit 5 · Firebase · Drizzle · shadcn-svelte</Badge>
 		<h1 class="text-4xl font-bold tracking-tight">Online Quiz</h1>
 		<p class="text-muted-foreground max-w-2xl">
-			Crie questionários com perguntas objetivas e imagens, e entre na sala pelo código compartilhado.
+			Crie questionários com cinco tipos de pergunta, inicie a sessão para liberar o código da sala e
+			conduza as perguntas uma a uma — ou deixe cada um responder no seu ritmo.
 		</p>
 	</header>
 
@@ -42,15 +43,18 @@
 
 		<Card.Root>
 			<Card.Header>
-				<Card.Title>Criar questionário</Card.Title>
-				<Card.Description>Perguntas objetivas com imagem opcional.</Card.Description>
+				<Card.Title>Criar e conduzir</Card.Title>
+				<Card.Description>Perguntas com imagem opcional e correção no servidor.</Card.Description>
 			</Card.Header>
 			<Card.Content class="flex flex-col gap-3">
 				<Button variant="outline" href="/criar" disabled={!authState.user}>
 					{authState.user ? 'Abrir o criador' : 'Entre para criar'}
 				</Button>
+				<Button variant="ghost" href="/meus-quizzes" disabled={!authState.user}>
+					Meus questionários
+				</Button>
 				<p class="text-muted-foreground text-xs">
-					Ao salvar, o sistema gera um código de 6 caracteres para os participantes.
+					O código de 6 caracteres só aparece quando você inicia uma sessão.
 				</p>
 			</Card.Content>
 		</Card.Root>

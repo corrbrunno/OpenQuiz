@@ -3,6 +3,7 @@ import { env as envPublico } from '$env/dynamic/public';
 export interface UsuarioAutenticado {
 	uid: string;
 	email: string | null;
+	nome: string | null;
 }
 
 /**
@@ -24,11 +25,17 @@ export async function usuarioDoToken(idToken: string): Promise<UsuarioAutenticad
 
 	if (!resposta.ok) return null;
 
-	const dados = (await resposta.json()) as { users?: { localId?: string; email?: string }[] };
+	const dados = (await resposta.json()) as {
+		users?: { localId?: string; email?: string; displayName?: string }[];
+	};
 	const usuario = dados.users?.[0];
 	if (!usuario?.localId) return null;
 
-	return { uid: usuario.localId, email: usuario.email ?? null };
+	return {
+		uid: usuario.localId,
+		email: usuario.email ?? null,
+		nome: usuario.displayName ?? null
+	};
 }
 
 export async function usuarioDaRequisicao(request: Request): Promise<UsuarioAutenticado | null> {

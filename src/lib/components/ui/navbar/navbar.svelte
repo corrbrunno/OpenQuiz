@@ -16,6 +16,7 @@
 		</a>
 
 		<nav class="flex items-center gap-1">
+			<Button variant="ghost" size="sm" href="/meus-quizzes">Meus questionários</Button>
 			<Button variant="ghost" size="sm" href="/criar">Criar quiz</Button>
 			<Button variant="ghost" size="sm" href="/entrar">Entrar em sala</Button>
 		</nav>

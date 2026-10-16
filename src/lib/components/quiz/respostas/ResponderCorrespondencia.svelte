@@ -1,12 +1,19 @@
 <script lang="ts">
-	import { montarResposta } from '$lib/quiz/rascunhos';
+	import { montarResposta, type RascunhoResposta } from '$lib/quiz/rascunhos';
 	import type { ConteudoDe, PerguntaSalva, RespostaComum } from '$lib/quiz/tipos';
 	import { embaralharComSemente } from '$lib/quiz/utils';
 
 	let {
 		pergunta,
-		responder
-	}: { pergunta: PerguntaSalva; responder: (resposta: RespostaComum) => void } = $props();
+		responder,
+		estadoInicial = null,
+		desabilitado = false
+	}: {
+		pergunta: PerguntaSalva;
+		responder: (resposta: RespostaComum) => void;
+		estadoInicial?: RascunhoResposta | null;
+		desabilitado?: boolean;
+	} = $props();
 
 	const conteudo = $derived(pergunta.conteudo as ConteudoDe<'correspondencia'>);
 	const colunaB = $derived(
@@ -16,7 +23,11 @@
 		)
 	);
 
-	let associacoes = $state<Record<string, string>>({});
+	function associacoesIniciais(): Record<string, string> {
+		return estadoInicial?.tipo === 'correspondencia' ? { ...estadoInicial.associacoes } : {};
+	}
+
+	let associacoes = $state<Record<string, string>>(associacoesIniciais());
 
 	function associar(parId: string, evento: Event) {
 		const alvo = (evento.currentTarget as HTMLSelectElement).value;
@@ -24,7 +35,9 @@
 		if (alvo) associacoes[parId] = alvo;
 		else delete associacoes[parId];
 
-		responder(montarResposta(pergunta.id, { tipo: 'correspondencia', associacoes: { ...associacoes } }));
+		responder(
+			montarResposta(pergunta.id, { tipo: 'correspondencia', associacoes: { ...associacoes } })
+		);
 	}
 </script>
 
@@ -43,6 +56,7 @@
 				class="border-input bg-background h-9 rounded-md border px-2 text-sm"
 				value={associacoes[par.id] ?? ''}
 				onchange={(evento) => associar(par.id, evento)}
+				disabled={desabilitado}
 				aria-label={`Correspondência de ${par.esquerda}`}
 			>
 				<option value="">escolha…</option>

@@ -1,14 +1,25 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { montarResposta } from '$lib/quiz/rascunhos';
+	import { montarResposta, type RascunhoResposta } from '$lib/quiz/rascunhos';
 	import type { PerguntaSalva, RespostaComum } from '$lib/quiz/tipos';
 
 	let {
 		pergunta,
-		responder
-	}: { pergunta: PerguntaSalva; responder: (resposta: RespostaComum) => void } = $props();
+		responder,
+		estadoInicial = null,
+		desabilitado = false
+	}: {
+		pergunta: PerguntaSalva;
+		responder: (resposta: RespostaComum) => void;
+		estadoInicial?: RascunhoResposta | null;
+		desabilitado?: boolean;
+	} = $props();
 
-	let escolha = $state<'verdadeiro' | 'falso' | null>(null);
+	function escolhaInicial(): 'verdadeiro' | 'falso' | null {
+		return estadoInicial?.tipo === 'verdadeiro-falso' ? estadoInicial.escolha : null;
+	}
+
+	let escolha = $state<'verdadeiro' | 'falso' | null>(escolhaInicial());
 
 	const OPCOES = [
 		{ valor: 'verdadeiro' as const, rotulo: 'Verdadeiro' },
@@ -16,6 +27,8 @@
 	];
 
 	function marcar(valor: 'verdadeiro' | 'falso') {
+		if (desabilitado) return;
+
 		escolha = escolha === valor ? null : valor;
 		responder(montarResposta(pergunta.id, { tipo: 'verdadeiro-falso', escolha }));
 	}
@@ -27,6 +40,7 @@
 			variant={escolha === opcao.valor ? 'default' : 'outline'}
 			class="min-w-32"
 			onclick={() => marcar(opcao.valor)}
+			disabled={desabilitado}
 			aria-pressed={escolha === opcao.valor}
 		>
 			{opcao.rotulo}
