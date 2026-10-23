@@ -3,6 +3,13 @@
 	import * as Card from '$lib/components/ui/card';
 	import { mensagemDeErro } from '$lib/client/api';
 	import { alternarSom, som } from '$lib/client/sons.svelte';
+	import {
+		confirmarBiometria,
+		definirPreferenciaNativa,
+		ehNativo,
+		preferenciaNativaAtiva,
+		situacaoBiometria
+	} from '$lib/client/nativo';
 	import { authState, sair } from '$lib/client/stores/auth.svelte';
 	import {
 		encerrarSessao,
@@ -12,6 +19,65 @@
 
 	let restante = $state(0);
 	let erro = $state('');
+	let nativo = $state({
+		plataforma: false,
+		biometria: false,
+		aparelhoProtegido: false,
+		podeConfirmar: false,
+		tipo: '',
+		motivo: '',
+		ativa: false
+	});
+	let avisoNativo = $state('');
+	let ocupadoNativo = $state(false);
+
+	$effect(() => {
+		const usuario = authState.user;
+		if (!usuario) return;
+
+		nativo.plataforma = ehNativo();
+		nativo.ativa = preferenciaNativaAtiva(usuario.uid);
+		void situacaoBiometria().then((situacao) => {
+			nativo.biometria = situacao.biometria;
+			nativo.aparelhoProtegido = situacao.aparelhoProtegido;
+			nativo.podeConfirmar = situacao.podeConfirmar;
+			nativo.tipo = situacao.tipo;
+			nativo.motivo = situacao.motivo;
+		});
+	});
+
+	async function alternarNativo() {
+		const usuario = authState.user;
+		if (!usuario) return;
+
+		ocupadoNativo = true;
+		avisoNativo = '';
+		try {
+			if (nativo.ativa) {
+				definirPreferenciaNativa(usuario.uid, false);
+				nativo.ativa = false;
+				avisoNativo = 'Entrada nativa desativada: a próxima entrada usa só a senha.';
+			} else {
+				if (!nativo.podeConfirmar) {
+					avisoNativo =
+						'Recurso indisponível: cadastre biometria ou PIN/padrão nas configurações do aparelho.';
+					return;
+				}
+
+				const autorizado = await confirmarBiometria('Ativar entrada nativa');
+				if (!autorizado) {
+					avisoNativo = 'Ativação cancelada.';
+					return;
+				}
+
+				definirPreferenciaNativa(usuario.uid, true);
+				nativo.ativa = true;
+				avisoNativo = 'Entrada nativa ativada para esta conta neste aparelho.';
+			}
+		} finally {
+			ocupadoNativo = false;
+		}
+	}
 
 	$effect(() => {
 		const calcular = () => {
@@ -103,6 +169,46 @@
 					Sem atividade por {LIMITE_INATIVIDADE_MS / 1000}s a sessão é encerrada e a área privada
 					desmonta: as telas voltam a pedir login.
 				</p>
+			</Card.Content>
+		</Card.Root>
+
+		<Card.Root>
+			<Card.Header>
+				<Card.Title>Entrada nativa</Card.Title>
+				<Card.Description>
+					Confirmação pelo sistema (biometria ou PIN do aparelho) depois do login remoto.
+				</Card.Description>
+			</Card.Header>
+			<Card.Content class="flex flex-col gap-3 text-sm">
+				{#if !nativo.plataforma}
+					<p class="text-muted-foreground">
+						Disponível apenas no aplicativo Android (build Capacitor). No navegador não existe
+						diálogo de biometria do sistema.
+					</p>
+				{:else}
+					<p>
+						<span class="text-muted-foreground">Biometria cadastrada:</span>
+						{nativo.biometria ? 'sim' : 'não'} ·
+						<span class="text-muted-foreground">PIN/padrão do aparelho:</span>
+						{nativo.aparelhoProtegido ? 'sim' : 'não'}
+						{#if nativo.tipo}· <span class="text-muted-foreground">Tipo:</span> {nativo.tipo}{/if}
+					</p>
+					{#if !nativo.podeConfirmar && nativo.motivo}
+						<p class="text-muted-foreground">{nativo.motivo}</p>
+					{/if}
+					<p>
+						<span class="text-muted-foreground">Situação nesta conta/aparelho:</span>
+						<strong>{nativo.ativa ? 'ativada' : 'desativada'}</strong>
+					</p>
+					<div>
+						<Button variant={nativo.ativa ? 'outline' : 'default'} disabled={ocupadoNativo} onclick={alternarNativo}>
+							{ocupadoNativo ? 'Aguarde…' : nativo.ativa ? 'Desativar entrada nativa' : 'Ativar entrada nativa'}
+						</Button>
+					</div>
+					{#if avisoNativo}
+						<p class="text-muted-foreground" role="status">{avisoNativo}</p>
+					{/if}
+				{/if}
 			</Card.Content>
 		</Card.Root>
 

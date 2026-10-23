@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Online Quiz</string>
+    <string name="title_activity_main">Online Quiz</string>
+    <string name="package_name">br.edu.univassouras.onlinequiz</string>
+    <string name="custom_url_scheme">br.edu.univassouras.onlinequiz</string>
+</resources>

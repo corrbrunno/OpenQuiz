@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import type { User } from 'firebase/auth';
 import { getFirebase } from '../firebase';
+import { confirmarBiometria, ehNativo, preferenciaNativaAtiva } from '../nativo';
 
 export const authState = $state({
 	user: null as User | null,
@@ -44,6 +45,20 @@ function mensagemDeErro(erro: unknown): string {
 	}
 }
 
+/**
+ * Entrada nativa: se a conta ativou o recurso NESTE aparelho, o diálogo do sistema vem
+ * depois do login remoto. Cancelou/indisponível → desloga e a tela de entrada continua.
+ */
+async function exigirEntradaNativa(usuario: User | null): Promise<void> {
+	if (!usuario || !ehNativo() || !preferenciaNativaAtiva(usuario.uid)) return;
+
+	const autorizado = await confirmarBiometria('Confirmar entrada no Online Quiz');
+	if (!autorizado) {
+		await sair();
+		throw new Error('Entrada nativa não autorizada');
+	}
+}
+
 export async function iniciarAuth(): Promise<void> {
 	if (!browser || iniciado) return;
 	iniciado = true;
@@ -65,7 +80,8 @@ export async function entrar(email: string, senha: string): Promise<boolean> {
 	authState.erro = '';
 	try {
 		const { auth, authMod } = await getFirebase();
-		await authMod.signInWithEmailAndPassword(auth, email.trim(), senha);
+		const credencial = await authMod.signInWithEmailAndPassword(auth, email.trim(), senha);
+		await exigirEntradaNativa(credencial.user);
 		return true;
 	} catch (erro) {
 		authState.erro = mensagemDeErro(erro);
@@ -93,7 +109,8 @@ export async function entrarComGoogle(): Promise<boolean> {
 		provedor.setCustomParameters({ prompt: 'select_account' });
 
 		try {
-			await authMod.signInWithPopup(auth, provedor);
+			const credencial = await authMod.signInWithPopup(auth, provedor);
+			await exigirEntradaNativa(credencial.user);
 		} catch (erro) {
 			const codigo = (erro as { code?: string })?.code ?? '';
 			const semPopup =
@@ -115,7 +132,8 @@ export async function concluirLoginGoogle(): Promise<void> {
 	if (!browser) return;
 	try {
 		const { auth, authMod } = await getFirebase();
-		await authMod.getRedirectResult(auth);
+		const resultado = await authMod.getRedirectResult(auth);
+		await exigirEntradaNativa(resultado?.user ?? null);
 	} catch (erro) {
 		authState.erro = mensagemDeErro(erro);
 	}

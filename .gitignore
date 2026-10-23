@@ -25,3 +25,7 @@ vite.config.ts.timestamp-*
 firebase-debug.log
 *.log
 scripts/teste-logica.mjs
+
+# scripts temporarios de build/sonda
+oq_*.cmd
+commit_msg.txt
