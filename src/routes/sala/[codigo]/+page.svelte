@@ -14,12 +14,8 @@
 	import ResponderPergunta from '$lib/components/quiz/ResponderPergunta.svelte';
 	import TabelaRanking from '$lib/components/quiz/TabelaRanking.svelte';
 	import { mensagemDeErro } from '$lib/client/api';
-	import {
-		entrarNaSala,
-		estadoDaSala,
-		responderPergunta,
-		type EstadoDaSala
-	} from '$lib/client/sessao';
+	import { assinarSala, entrarNaSala, estadoDaSala, responderPergunta, type EstadoDaSala } from '$lib/client/sessao';
+	import { tocarSom } from '$lib/client/sons.svelte';
 	import { authState } from '$lib/client/stores/auth.svelte';
 	import type { RespostaComum } from '$lib/quiz/tipos';
 
@@ -80,16 +76,31 @@
 		}
 	}
 
-	async function atualizar() {
+	/**
+	 * Assinatura de eventos (SSE): o servidor empurra o estado da sala; o cliente reconecta
+	 * sozinho quando a conexão cai. Substitui o polling de 4 s.
+	 */
+	$effect(() => {
 		const usuario = authState.user;
-		if (!usuario || !codigo) return;
+		const alvo = codigo;
 
-		try {
-			estado = await estadoDaSala(codigo, usuario);
-		} catch {
-			// silencioso: o polling não deve interromper a tela do jogador
-		}
-	}
+		if (!usuario || !alvo) return;
+
+		return assinarSala(alvo, usuario, (dados) => {
+			const proximo = dados as EstadoDaSala;
+			if (!proximo?.sessao) return;
+
+			const perguntaAnterior = estado?.perguntas[0]?.id ?? '';
+			const perguntaNova = proximo.perguntas[0]?.id ?? '';
+
+			if (perguntaNova && perguntaNova !== perguntaAnterior) tocarSom('nova-pergunta');
+			if (proximo.sessao.status === 'encerrada' && estado?.sessao.status !== 'encerrada') {
+				tocarSom('fim');
+			}
+
+			estado = proximo;
+		});
+	});
 
 	$effect(() => {
 		const usuario = authState.user;
@@ -103,13 +114,6 @@
 		void carregar();
 	});
 
-	// Acompanha o apresentador (e a entrada de novos participantes) sem recarregar a página.
-	$effect(() => {
-		if (!estado || estado.souDono || encerrada) return;
-
-		const timer = setInterval(() => void atualizar(), 4000);
-		return () => clearInterval(timer);
-	});
 
 	function guardarPendente(resposta: RespostaComum) {
 		pendentes = { ...pendentes, [resposta.perguntaId]: resposta };

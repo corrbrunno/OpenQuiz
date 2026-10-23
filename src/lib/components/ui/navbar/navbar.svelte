@@ -26,6 +26,7 @@
 			<LibrasToggle />
 			<ThemeToggle />
 			{#if authState.user}
+				<Button variant="ghost" size="sm" href="/perfil">Perfil</Button>
 				<span class="text-muted-foreground hidden max-w-40 truncate text-sm md:inline">
 					{authState.user.email}
 				</span>

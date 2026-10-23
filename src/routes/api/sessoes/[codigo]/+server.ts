@@ -1,13 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { isDbConfigured } from '$lib/server/db';
 import { usuarioDaRequisicao } from '$lib/server/auth';
-import {
-	buscarSessaoPorCodigo,
-	minhasRespostas,
-	participanteDaSessao,
-	perguntasDoQuiz,
-	rankingDaSessao
-} from '$lib/server/sessoes';
+import { buscarSessaoPorCodigo, payloadDaSala } from '$lib/server/sessoes';
 import type { RequestHandler } from './$types';
 
 /**
@@ -25,31 +19,5 @@ export const GET: RequestHandler = async ({ params, request }) => {
 	const achado = await buscarSessaoPorCodigo(params.codigo ?? '');
 	if (!achado) return json({ erro: 'Sala não encontrada: confira o código.' }, { status: 404 });
 
-	const { sessao, quiz } = achado;
-	const souDono = sessao.donoUid === usuario.uid;
-	const participante = souDono ? null : await participanteDaSessao(sessao.id, usuario.uid);
-
-	const todas = await perguntasDoQuiz(quiz.id);
-	const visiveis =
-		sessao.modo === 'conduzida' ? todas.filter((item) => item.ordem === sessao.perguntaAtual) : todas;
-
-	const minhas = participante ? await minhasRespostas(sessao.id, participante.id) : [];
-	const ranking =
-		souDono || sessao.status === 'encerrada' ? await rankingDaSessao(sessao.id) : null;
-
-	return json({
-		sessao: {
-			codigo: sessao.codigo,
-			modo: sessao.modo,
-			status: sessao.status,
-			perguntaAtual: sessao.perguntaAtual
-		},
-		quiz: { titulo: quiz.titulo, totalPerguntas: quiz.totalPerguntas },
-		souDono,
-		participei: Boolean(participante),
-		participanteId: participante?.id ?? null,
-		perguntas: visiveis,
-		minhasRespostas: minhas,
-		ranking
-	});
+	return json(await payloadDaSala(achado.sessao, achado.quiz, usuario));
 };

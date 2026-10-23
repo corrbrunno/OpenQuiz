@@ -116,3 +116,76 @@ export async function controlarSessao(
 		corpo: { acao }
 	});
 }
+
+/**
+ * Assinatura de eventos da sala (SSE) com reconexão automática.
+ * O `EventSource` nativo não manda cabeçalho, então lemos o stream com `fetch` e
+ * refazemos a conexão com espera crescente quando ela cai.
+ */
+export function assinarSala(
+	codigo: string,
+	usuario: User,
+	aoReceber: (dados: unknown) => void
+): () => void {
+	let ativo = true;
+	let controle: AbortController | null = null;
+	let espera = 1000;
+
+	const conectar = async () => {
+		while (ativo) {
+			controle = new AbortController();
+
+			try {
+				const idToken = await usuario.getIdToken();
+				const resposta = await fetch(`/api/sessoes/${encodeURIComponent(codigo)}/eventos`, {
+					headers: { Authorization: `Bearer ${idToken}` },
+					signal: controle.signal
+				});
+
+				if (!resposta.ok || !resposta.body) throw new Error(`stream ${resposta.status}`);
+
+				espera = 1000;
+				const leitor = resposta.body.getReader();
+				const decodificador = new TextDecoder();
+				let buffer = '';
+
+				while (ativo) {
+					const { value, done } = await leitor.read();
+					if (done) break;
+
+					buffer += decodificador.decode(value, { stream: true });
+
+					let corte = buffer.indexOf('\n\n');
+					while (corte !== -1) {
+						const bloco = buffer.slice(0, corte);
+						buffer = buffer.slice(corte + 2);
+
+						const linha = bloco.split('\n').find((item) => item.startsWith('data:'));
+						if (linha) {
+							try {
+								aoReceber(JSON.parse(linha.slice(5).trim()));
+							} catch {
+								// evento malformado: ignora
+							}
+						}
+
+						corte = buffer.indexOf('\n\n');
+					}
+				}
+			} catch {
+				// queda de rede/servidor: cai no backoff abaixo
+			}
+
+			if (!ativo) break;
+			await new Promise((resolver) => setTimeout(resolver, espera));
+			espera = Math.min(espera * 2, 8000);
+		}
+	};
+
+	void conectar();
+
+	return () => {
+		ativo = false;
+		controle?.abort();
+	};
+}

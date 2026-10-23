@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import { v2 as cloudinary } from 'cloudinary';
 import { env } from '$env/dynamic/private';
 import { usuarioDaRequisicao } from '$lib/server/auth';
+import { exigirSessao } from '$lib/server/sessao-usuario';
 import type { RequestHandler } from './$types';
 
 const TAMANHO_MAXIMO = 5 * 1024 * 1024;
@@ -22,6 +23,9 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!usuario) {
 		return json({ erro: 'Entre na sua conta para anexar imagens.' }, { status: 401 });
 	}
+
+	const semSessao = await exigirSessao(request, usuario);
+	if (semSessao) return semSessao;
 
 	const formulario = await request.formData();
 	const arquivo = formulario.get('arquivo');

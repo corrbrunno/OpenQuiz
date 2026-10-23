@@ -5,11 +5,8 @@
 	import PreviaPergunta from '$lib/components/quiz/PreviaPergunta.svelte';
 	import TabelaRanking from '$lib/components/quiz/TabelaRanking.svelte';
 	import { mensagemDeErro } from '$lib/client/api';
-	import {
-		controlarSessao,
-		painelDoApresentador,
-		type PainelDoApresentador
-	} from '$lib/client/sessao';
+	import { assinarSala, controlarSessao, painelDoApresentador, type PainelDoApresentador } from '$lib/client/sessao';
+	import { tocarSom } from '$lib/client/sons.svelte';
 	import { authState } from '$lib/client/stores/auth.svelte';
 
 	const codigo = $derived((page.params.codigo ?? '').toUpperCase());
@@ -50,12 +47,25 @@
 		void atualizar();
 	});
 
-	// Enquanto a rodada está aberta, recarrega para ver quem entrou e quem respondeu.
+	// Assinatura de eventos (SSE): cada resposta de participante chega sem recarregar a página.
 	$effect(() => {
-		if (!aberta) return;
+		const usuario = authState.user;
+		const alvo = codigo;
 
-		const timer = setInterval(() => void atualizar(), 4000);
-		return () => clearInterval(timer);
+		if (!usuario || !alvo) return;
+
+		return assinarSala(alvo, usuario, (dados) => {
+			const proximo = dados as PainelDoApresentador;
+			if (!proximo?.sessao) return;
+
+			const antes = painel?.responderamAtual ?? 0;
+			if (proximo.responderamAtual > antes) tocarSom('resposta');
+			if (proximo.sessao.status === 'encerrada' && painel?.sessao.status !== 'encerrada') {
+				tocarSom('fim');
+			}
+
+			painel = proximo;
+		});
 	});
 
 	async function acao(nome: 'avancar' | 'voltar' | 'encerrar') {

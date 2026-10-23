@@ -3,6 +3,7 @@ import { desc, eq } from 'drizzle-orm';
 import { getDb, isDbConfigured } from '$lib/server/db';
 import { gabaritos, perguntas, quizzes } from '$lib/server/db/schema';
 import { usuarioDaRequisicao } from '$lib/server/auth';
+import { exigirSessao } from '$lib/server/sessao-usuario';
 import { validarPerguntaRecebida, type PerguntaRecebida } from '$lib/quiz/validacao';
 import type { TipoPergunta } from '$lib/quiz/tipos';
 import type { RequestHandler } from './$types';
@@ -43,6 +44,9 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!usuario) {
 		return json({ erro: 'Entre na sua conta para salvar o questionário.' }, { status: 401 });
 	}
+
+	const semSessao = await exigirSessao(request, usuario);
+	if (semSessao) return semSessao;
 
 	const corpo = (await request.json().catch(() => null)) as {
 		titulo?: string;

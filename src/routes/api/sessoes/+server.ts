@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { getDb, isDbConfigured } from '$lib/server/db';
 import { perguntas, quizzes, sessoes, MODOS_SESSAO, type ModoSessao } from '$lib/server/db/schema';
 import { usuarioDaRequisicao } from '$lib/server/auth';
+import { exigirSessao } from '$lib/server/sessao-usuario';
 import { gerarCodigo } from '$lib/server/sessoes';
 import type { RequestHandler } from './$types';
 
@@ -22,6 +23,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	const usuario = await usuarioDaRequisicao(request);
 	if (!usuario) return json({ erro: 'Entre na sua conta para iniciar a sessão.' }, { status: 401 });
+
+	const semSessao = await exigirSessao(request, usuario);
+	if (semSessao) return semSessao;
 
 	const corpo = (await request.json().catch(() => null)) as {
 		quizId?: string;

@@ -16,9 +16,19 @@ function readLibras(): boolean {
 	return localStorage.getItem(LIBRAS_KEY) === 'true';
 }
 
-function applyFontScale(value: number) {
+/** Escreve a escala na raiz do documento (o CSS consome `var(--font-scale)`). */
+export function aplicarFonte(value: number) {
 	if (typeof document === 'undefined') return;
 	document.documentElement.style.setProperty('--font-scale', `${value}%`);
+}
+
+/** No servidor não há preferências; a tela só deve aplicar depois de hidratar. */
+export function acessibilidadePronta(): boolean {
+	return typeof document !== 'undefined';
+}
+
+function applyFontScale(value: number) {
+	aplicarFonte(value);
 }
 
 export const accessibility = $state({

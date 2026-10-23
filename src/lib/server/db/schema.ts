@@ -92,6 +92,26 @@ export const participantes = pgTable(
 	(tabela) => [uniqueIndex('participantes_sessao_uid_unico').on(tabela.sessaoId, tabela.uid)]
 );
 
+/**
+ * Sessão do APLICATIVO (não confundir com `sessoes`, que é a rodada do quiz):
+ * nasce no login, é renovada pela atividade e expira sozinha — validade checada no servidor.
+ */
+export const sessoesUsuario = pgTable(
+	'sessoes_usuario',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		uid: text('uid').notNull(),
+		email: text('email'),
+		iniciadaEm: timestamp('iniciada_em', { withTimezone: true }).notNull().defaultNow(),
+		ultimaAtividadeEm: timestamp('ultima_atividade_em', { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+		expiraEm: timestamp('expira_em', { withTimezone: true }).notNull(),
+		encerradaEm: timestamp('encerrada_em', { withTimezone: true })
+	},
+	(tabela) => [index('sessoes_usuario_uid_idx').on(tabela.uid)]
+);
+
 /** Uma resposta por pergunta por participante; a pontuação é calculada no servidor. */
 export const respostas = pgTable(
 	'respostas',

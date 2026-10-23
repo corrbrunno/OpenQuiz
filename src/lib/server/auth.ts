@@ -26,10 +26,12 @@ export async function usuarioDoToken(idToken: string): Promise<UsuarioAutenticad
 	if (!resposta.ok) return null;
 
 	const dados = (await resposta.json()) as {
-		users?: { localId?: string; email?: string; displayName?: string }[];
+		users?: { localId?: string; email?: string; displayName?: string; disabled?: boolean }[];
 	};
 	const usuario = dados.users?.[0];
-	if (!usuario?.localId) return null;
+
+	// conta apagada → lookup falha; conta desativada → vem com disabled=true (bloqueia igual)
+	if (!usuario?.localId || usuario.disabled) return null;
 
 	return {
 		uid: usuario.localId,

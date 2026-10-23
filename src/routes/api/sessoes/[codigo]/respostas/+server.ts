@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { getDb, isDbConfigured } from '$lib/server/db';
 import { gabaritos, perguntas, respostas } from '$lib/server/db/schema';
 import { usuarioDaRequisicao } from '$lib/server/auth';
+import { exigirSessao } from '$lib/server/sessao-usuario';
 import { buscarSessaoPorCodigo, participanteDaSessao } from '$lib/server/sessoes';
 import { corrigir } from '$lib/quiz/correcao';
 import type { Atribuicao, RespostaComum } from '$lib/quiz/tipos';
@@ -20,6 +21,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	const usuario = await usuarioDaRequisicao(request);
 	if (!usuario) return json({ erro: 'Entre na sua conta para responder.' }, { status: 401 });
+
+	const semSessao = await exigirSessao(request, usuario);
+	if (semSessao) return semSessao;
 
 	const achado = await buscarSessaoPorCodigo(params.codigo ?? '');
 	if (!achado) return json({ erro: 'Sala não encontrada.' }, { status: 404 });

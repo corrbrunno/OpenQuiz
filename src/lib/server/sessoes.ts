@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { getDb } from './db';
-import { participantes, perguntas, quizzes, respostas, sessoes } from './db/schema';
+import { gabaritos, participantes, perguntas, quizzes, respostas, sessoes } from './db/schema';
 import type { UsuarioAutenticado } from './auth';
 
 const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -114,4 +114,90 @@ export async function minhasRespostas(sessaoId: string, participanteId: string) 
 		})
 		.from(respostas)
 		.where(and(eq(respostas.sessaoId, sessaoId), eq(respostas.participanteId, participanteId)));
+}
+
+/**
+ * Payload da sala para quem joga. Fonte única: usado pelo GET e pelo stream de eventos (SSE),
+ * para os dois caminhos nunca divergirem.
+ */
+export async function payloadDaSala(
+	sessao: typeof sessoes.$inferSelect,
+	quiz: typeof quizzes.$inferSelect,
+	usuario: UsuarioAutenticado
+) {
+	const souDono = sessao.donoUid === usuario.uid;
+	const participante = souDono ? null : await participanteDaSessao(sessao.id, usuario.uid);
+
+	const todas = await perguntasDoQuiz(quiz.id);
+	const visiveis =
+		sessao.modo === 'conduzida' ? todas.filter((item) => item.ordem === sessao.perguntaAtual) : todas;
+
+	const minhas = participante ? await minhasRespostas(sessao.id, participante.id) : [];
+	const ranking =
+		souDono || sessao.status === 'encerrada' ? await rankingDaSessao(sessao.id) : null;
+
+	return {
+		sessao: {
+			codigo: sessao.codigo,
+			modo: sessao.modo,
+			status: sessao.status,
+			perguntaAtual: sessao.perguntaAtual
+		},
+		quiz: { titulo: quiz.titulo, totalPerguntas: quiz.totalPerguntas },
+		souDono,
+		participei: Boolean(participante),
+		participanteId: participante?.id ?? null,
+		perguntas: visiveis,
+		minhasRespostas: minhas,
+		ranking
+	};
+}
+
+/** Payload do painel do apresentador (inclui o gabarito da pergunta no ar — só o dono recebe). */
+export async function payloadDoPainel(
+	sessao: typeof sessoes.$inferSelect,
+	quiz: typeof quizzes.$inferSelect
+) {
+	const lista = await perguntasDoQuiz(quiz.id);
+	const atual = lista.find((item) => item.ordem === sessao.perguntaAtual) ?? lista[0] ?? null;
+
+	const db = getDb();
+	const responderam = atual
+		? new Set(
+				(
+					await db
+						.select({ participanteId: respostas.participanteId })
+						.from(respostas)
+						.where(and(eq(respostas.sessaoId, sessao.id), eq(respostas.perguntaId, atual.id)))
+				).map((linha) => linha.participanteId)
+			)
+		: new Set<string>();
+
+	const ranking = await rankingDaSessao(sessao.id);
+
+	const [gabaritoAtual] = atual
+		? await db.select().from(gabaritos).where(eq(gabaritos.perguntaId, atual.id)).limit(1)
+		: [];
+
+	return {
+		sessao: {
+			codigo: sessao.codigo,
+			modo: sessao.modo,
+			status: sessao.status,
+			perguntaAtual: sessao.perguntaAtual,
+			abertaEm: sessao.abertaEm,
+			encerradaEm: sessao.encerradaEm
+		},
+		quiz: { id: quiz.id, titulo: quiz.titulo, totalPerguntas: quiz.totalPerguntas },
+		perguntaAtual: atual,
+		gabaritoAtual: gabaritoAtual
+			? { perguntaId: atual!.id, tipo: gabaritoAtual.tipo, atribuicoes: gabaritoAtual.atribuicoes }
+			: null,
+		participantes: ranking.map((linha) => ({
+			...linha,
+			respondeuAtual: responderam.has(linha.participanteId)
+		})),
+		responderamAtual: responderam.size,
+		ranking
+	};
 }

@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { isDbConfigured } from '$lib/server/db';
 import { usuarioDaRequisicao } from '$lib/server/auth';
+import { exigirSessao } from '$lib/server/sessao-usuario';
 import { buscarSessaoPorCodigo, nomeDoUsuario, registrarParticipante } from '$lib/server/sessoes';
 import type { RequestHandler } from './$types';
 
@@ -10,6 +11,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	const usuario = await usuarioDaRequisicao(request);
 	if (!usuario) return json({ erro: 'Entre na sua conta para participar.' }, { status: 401 });
+
+	const semSessao = await exigirSessao(request, usuario);
+	if (semSessao) return semSessao;
 
 	const achado = await buscarSessaoPorCodigo(params.codigo ?? '');
 	if (!achado) return json({ erro: 'Sala não encontrada: confira o código.' }, { status: 404 });

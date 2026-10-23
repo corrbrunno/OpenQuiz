@@ -47,9 +47,32 @@ async function apagarUsuario(idToken) {
 	return resposta.ok;
 }
 
+const sessoesPorToken = new Map();
+
+/** Abre (uma vez) a sessão do app para um usuário — o id vai no cabeçalho X-Sessao. */
+async function sessaoDe(idToken) {
+	if (!idToken) return '';
+	if (sessoesPorToken.has(idToken)) return sessoesPorToken.get(idToken);
+
+	const resposta = await fetch(`${base}/api/sessao`, {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${idToken}` }
+	});
+	const corpo = await resposta.json().catch(() => ({}));
+	const id = corpo?.sessao?.id ?? '';
+	sessoesPorToken.set(idToken, id);
+
+	return id;
+}
+
 async function chamar(caminho, idToken, opcoes = {}) {
 	const cabecalhos = {};
-	if (idToken) cabecalhos.Authorization = `Bearer ${idToken}`;
+	if (idToken) {
+		cabecalhos.Authorization = `Bearer ${idToken}`;
+
+		const sessao = opcoes.sessao ?? (opcoes.semSessao ? '' : await sessaoDe(idToken));
+		if (sessao) cabecalhos['X-Sessao'] = sessao;
+	}
 	if (opcoes.corpo) cabecalhos['Content-Type'] = 'application/json';
 
 	const resposta = await fetch(`${base}${caminho}`, {
@@ -139,6 +162,39 @@ const dono = await criarUsuario('dono');
 const jogadorA = await criarUsuario('a');
 const jogadorB = await criarUsuario('b');
 console.log('criados:', dono.email, '|', jogadorA.email, '|', jogadorB.email);
+
+console.log('\n=== SESSAO DO APP (blocos 2 e 6) ===');
+const sessaoDono = await sessaoDe(dono.idToken);
+conferir('sessao do app criada (uuid)', /^[0-9a-f-]{36}$/i.test(sessaoDono), true);
+
+const estadoDaSessao = await chamar('/api/sessao', dono.idToken);
+conferir('GET /api/sessao -> 200', estadoDaSessao.status, 200);
+conferir('id da sessao confere', estadoDaSessao.corpo.sessao.id, sessaoDono);
+conferir('existe expiracao', typeof estadoDaSessao.corpo.sessao.expiraEm, 'string');
+
+const renovacao = await chamar('/api/sessao/touch', dono.idToken, { metodo: 'POST' });
+conferir('renovar sessao pela atividade (touch) -> 200', renovacao.status, 200);
+conferir(
+	'expiraEm foi empurrado para frente',
+	new Date(renovacao.corpo.sessao.expiraEm) >= new Date(estadoDaSessao.corpo.sessao.expiraEm),
+	true
+);
+
+const payloadMinimo = { titulo: 'x', perguntas: [] };
+const semCabecalho = await chamar('/api/quizzes', dono.idToken, {
+	metodo: 'POST',
+	corpo: payloadMinimo,
+	semSessao: true
+});
+conferir('mutacao sem X-Sessao -> 401', semCabecalho.status, 401);
+conferir('codigo sessao-invalida', semCabecalho.corpo.codigo, 'sessao-invalida');
+
+const sessaoFalsa = await chamar('/api/quizzes', dono.idToken, {
+	metodo: 'POST',
+	corpo: payloadMinimo,
+	sessao: crypto.randomUUID()
+});
+conferir('mutacao com sessao inexistente -> 401', sessaoFalsa.status, 401);
 
 console.log('\n=== PARTE 1: QUESTIONARIO (CRIAR, LISTAR, EDITAR) ===');
 const criado = await chamar('/api/quizzes', dono.idToken, {
@@ -247,8 +303,8 @@ conferir('entrar de novo e idempotente -> 201', entraDeNovo.status, 201);
 const salaDoJogador = await chamar(`/api/sessoes/${codigo}`, jogadorA.idToken);
 conferir('jogador ve so a pergunta no ar', salaDoJogador.corpo.perguntas.length, 1);
 conferir(
-	'gabarito NAO aparece para o jogador',
-	JSON.stringify(salaDoJogador.corpo).includes('atribuicoes'),
+	'gabarito do apresentador NAO aparece para o jogador',
+	JSON.stringify(salaDoJogador.corpo).includes('gabaritoAtual'),
 	false
 );
 conferir('placar escondido enquanto a sessao esta aberta', salaDoJogador.corpo.ranking, null);
@@ -412,6 +468,54 @@ await chamar(`/api/sessoes/${codigoLivre}/controle`, dono.idToken, {
 	corpo: { acao: 'encerrar' }
 });
 
+console.log('\n=== TEMPO REAL (SSE) ===');
+{
+	const controle = new AbortController();
+	const relogio = setTimeout(() => controle.abort(), 8000);
+	let texto = '';
+	let tipoConteudo = '';
+
+	try {
+		const resposta = await fetch(`${base}/api/sessoes/${codigo}/eventos`, {
+			headers: { Authorization: `Bearer ${jogadorA.idToken}` },
+			signal: controle.signal
+		});
+
+		tipoConteudo = String(resposta.headers.get('content-type'));
+		const leitor = resposta.body.getReader();
+		const primeiro = await leitor.read();
+		texto = new TextDecoder().decode(primeiro.value);
+		await leitor.cancel();
+	} catch {
+		// abort esperado depois do primeiro evento
+	}
+	clearTimeout(relogio);
+
+	conferir('content-type text/event-stream', tipoConteudo.includes('text/event-stream'), true);
+	conferir('stream emitiu evento estado', texto.includes('event: estado'), true);
+	conferir('stream trouxe o estado da sala', texto.includes('"perguntas"'), true);
+	conferir('stream nao traz o gabarito do apresentador', texto.includes('gabaritoAtual'), false);
+	conferir('stream reconhece que nao e o dono', texto.includes('"souDono":false'), true);
+}
+
+console.log('\n=== SESSAO REVOGADA (cenario de defesa do bloco 6) ===');
+await fetch(`${base}/api/sessao`, {
+	method: 'DELETE',
+	headers: { Authorization: `Bearer ${dono.idToken}`, 'X-Sessao': sessaoDono }
+});
+sessoesPorToken.delete(dono.idToken);
+
+const aposRevogar = await chamar('/api/quizzes', dono.idToken, {
+	metodo: 'POST',
+	corpo: payloadMinimo,
+	sessao: sessaoDono
+});
+conferir('operar com sessao revogada -> 401', aposRevogar.status, 401);
+
+const novaSessao = await chamar('/api/sessao', dono.idToken);
+conferir('sessao nova volta a funcionar -> 200', novaSessao.status, 200);
+conferir('a sessao nova tem outro id', novaSessao.corpo.sessao.id !== sessaoDono, true);
+
 console.log('\n=== BANCO (SQL) ===');
 const contagensDoQuiz = async () => {
 	const [linha] = await sql`
@@ -435,7 +539,9 @@ conferir('3 participantes (2 na conduzida + 1 na livre)', contagens.participante
 conferir('5 respostas (3 na conduzida + 2 na livre)', contagens.respostas, 5);
 
 const [sessaoBanco] = await sql`
-	select status, modo, pergunta_atual from sessoes order by aberta_em asc limit 1
+	select status, modo, pergunta_atual from sessoes
+	where quiz_id = ${quizId} and modo = 'conduzida'
+	order by aberta_em asc limit 1
 `;
 conferir('sessao conduzida encerrada no banco', sessaoBanco.status, 'encerrada');
 conferir('sessao conduzida parada na ultima pergunta', sessaoBanco.pergunta_atual, 5);

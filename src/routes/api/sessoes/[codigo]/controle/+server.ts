@@ -1,13 +1,10 @@
 import { json } from '@sveltejs/kit';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb, isDbConfigured } from '$lib/server/db';
-import { gabaritos, respostas, sessoes } from '$lib/server/db/schema';
+import { sessoes } from '$lib/server/db/schema';
 import { usuarioDaRequisicao } from '$lib/server/auth';
-import {
-	buscarSessaoPorCodigo,
-	perguntasDoQuiz,
-	rankingDaSessao
-} from '$lib/server/sessoes';
+import { exigirSessao } from '$lib/server/sessao-usuario';
+import { buscarSessaoPorCodigo, payloadDoPainel } from '$lib/server/sessoes';
 import type { RequestHandler } from './$types';
 
 const ACOES = ['avancar', 'voltar', 'encerrar'] as const;
@@ -22,57 +19,11 @@ export const GET: RequestHandler = async ({ params, request }) => {
 	const achado = await buscarSessaoPorCodigo(params.codigo ?? '');
 	if (!achado) return json({ erro: 'Sala não encontrada.' }, { status: 404 });
 
-	const { sessao, quiz } = achado;
-	if (sessao.donoUid !== usuario.uid) {
+	if (achado.sessao.donoUid !== usuario.uid) {
 		return json({ erro: 'Só quem criou o questionário acessa o painel.' }, { status: 403 });
 	}
 
-	const lista = await perguntasDoQuiz(quiz.id);
-	const atual = lista.find((item) => item.ordem === sessao.perguntaAtual) ?? lista[0] ?? null;
-
-	const db = getDb();
-	const responderam = atual
-		? new Set(
-				(
-					await db
-						.select({ participanteId: respostas.participanteId })
-						.from(respostas)
-						.where(and(eq(respostas.sessaoId, sessao.id), eq(respostas.perguntaId, atual.id)))
-				).map((linha) => linha.participanteId)
-			)
-		: new Set<string>();
-
-	const ranking = await rankingDaSessao(sessao.id);
-
-	const [gabaritoAtual] = atual
-		? await db
-				.select()
-				.from(gabaritos)
-				.where(eq(gabaritos.perguntaId, atual.id))
-				.limit(1)
-		: [];
-
-	return json({
-		sessao: {
-			codigo: sessao.codigo,
-			modo: sessao.modo,
-			status: sessao.status,
-			perguntaAtual: sessao.perguntaAtual,
-			abertaEm: sessao.abertaEm,
-			encerradaEm: sessao.encerradaEm
-		},
-		quiz: { id: quiz.id, titulo: quiz.titulo, totalPerguntas: quiz.totalPerguntas },
-		perguntaAtual: atual,
-		gabaritoAtual: gabaritoAtual
-			? { perguntaId: atual!.id, tipo: gabaritoAtual.tipo, atribuicoes: gabaritoAtual.atribuicoes }
-			: null,
-		participantes: ranking.map((linha) => ({
-			...linha,
-			respondeuAtual: responderam.has(linha.participanteId)
-		})),
-		responderamAtual: responderam.size,
-		ranking
-	});
+	return json(await payloadDoPainel(achado.sessao, achado.quiz));
 };
 
 /** Controle do ritual: avançar, voltar ou encerrar a sessão. */
@@ -81,6 +32,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	const usuario = await usuarioDaRequisicao(request);
 	if (!usuario) return json({ erro: 'Entre na sua conta.' }, { status: 401 });
+
+	const semSessao = await exigirSessao(request, usuario);
+	if (semSessao) return semSessao;
 
 	const achado = await buscarSessaoPorCodigo(params.codigo ?? '');
 	if (!achado) return json({ erro: 'Sala não encontrada.' }, { status: 404 });

@@ -3,6 +3,7 @@ import { and, eq, notInArray, sql } from 'drizzle-orm';
 import { getDb, isDbConfigured } from '$lib/server/db';
 import { gabaritos, perguntas, quizzes, sessoes } from '$lib/server/db/schema';
 import { usuarioDaRequisicao, type UsuarioAutenticado } from '$lib/server/auth';
+import { exigirSessao } from '$lib/server/sessao-usuario';
 import { validarPerguntaRecebida, type PerguntaRecebida } from '$lib/quiz/validacao';
 import type { TipoPergunta } from '$lib/quiz/tipos';
 import type { RequestHandler } from './$types';
@@ -83,6 +84,9 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 
 	const acesso = await donoDaRequisicao(request, params.id);
 	if (!acesso.liberado) return acesso.resposta;
+
+	const semSessao = await exigirSessao(request, acesso.usuario);
+	if (semSessao) return semSessao;
 
 	const corpo = (await request.json().catch(() => null)) as Requisicao | null;
 	const titulo = corpo?.titulo?.trim() ?? '';
@@ -181,6 +185,9 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
 
 	const acesso = await donoDaRequisicao(request, params.id);
 	if (!acesso.liberado) return acesso.resposta;
+
+	const semSessao = await exigirSessao(request, acesso.usuario);
+	if (semSessao) return semSessao;
 
 	const db = getDb();
 	// As sessões, perguntas, gabaritos e respostas caem em cascata.
