@@ -1,0 +1,9 @@
+node_modules
+.svelte-kit
+build
+android
+.git
+.env
+.env.*
+*.log
+capacitor-web
