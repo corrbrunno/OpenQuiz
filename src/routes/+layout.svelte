@@ -68,6 +68,6 @@
 	</div>
 {/if}
 
-<main class="mx-auto w-full max-w-5xl px-4 py-8">
+<main class="mx-auto w-full max-w-5xl px-4 py-8 pb-[calc(2rem+env(safe-area-inset-bottom))]">
 	{@render children()}
 </main>
