@@ -17,9 +17,17 @@
 	import { assinarSala, entrarNaSala, estadoDaSala, responderPergunta, type EstadoDaSala } from '$lib/client/sessao';
 	import { tocarSom } from '$lib/client/sons.svelte';
 	import { authState } from '$lib/client/stores/auth.svelte';
+	import { acompanharPresenca } from '$lib/client/presenca';
 	import type { RespostaComum } from '$lib/quiz/tipos';
 
 	const codigo = $derived((page.params.codigo ?? '').toUpperCase());
+
+	// avisa o servidor quando o app sai da frente: é isso que dispara a notificação
+	$effect(() => {
+		const usuario = authState.user;
+		if (!usuario) return;
+		return acompanharPresenca(codigo, usuario);
+	});
 
 	let carregando = $state(true);
 	let erro = $state('');

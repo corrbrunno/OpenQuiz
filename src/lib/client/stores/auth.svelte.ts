@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 import type { User } from 'firebase/auth';
 import { getFirebase } from '../firebase';
 import { confirmarBiometria, ehNativo, preferenciaNativaAtiva } from '../nativo';
+import { esquecerPush } from '../push';
 
 export const authState = $state({
 	user: null as User | null,
@@ -154,6 +155,9 @@ export async function redefinirSenha(email: string): Promise<boolean> {
 export async function sair(): Promise<void> {
 	authState.erro = '';
 	try {
+		// o aparelho deixa de receber notificação desta conta
+		if (authState.user) await esquecerPush(authState.user);
+
 		const { auth, authMod } = await getFirebase();
 		await authMod.signOut(auth);
 	} catch (erro) {

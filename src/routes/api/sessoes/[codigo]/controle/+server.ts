@@ -5,6 +5,7 @@ import { sessoes } from '$lib/server/db/schema';
 import { usuarioDaRequisicao } from '$lib/server/auth';
 import { exigirSessao } from '$lib/server/sessao-usuario';
 import { buscarSessaoPorCodigo, payloadDoPainel } from '$lib/server/sessoes';
+import { notificarNovaPergunta } from '$lib/server/push-sala';
 import type { RequestHandler } from './$types';
 
 const ACOES = ['avancar', 'voltar', 'encerrar'] as const;
@@ -78,5 +79,11 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		.where(eq(sessoes.id, sessao.id))
 		.returning({ codigo: sessoes.codigo, status: sessoes.status, perguntaAtual: sessoes.perguntaAtual });
 
-	return json({ sessao: atualizada });
+	// pergunta nova no ar: avisa quem saiu do app (no ritmo livre ninguém é chamado no meio)
+	let notificacao = null;
+	if (acao === 'avancar' && sessao.modo === 'conduzida' && destino !== sessao.perguntaAtual) {
+		notificacao = await notificarNovaPergunta(sessao.id, sessao.codigo, destino, total).catch(() => null);
+	}
+
+	return json({ sessao: atualizada, notificacao });
 };

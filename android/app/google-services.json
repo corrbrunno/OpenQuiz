@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "555294097333",
+    "project_id": "online-quiz-faculdade",
+    "storage_bucket": "online-quiz-faculdade.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:555294097333:android:718dd90d12e00486e4e3fc",
+        "android_client_info": {
+          "package_name": "br.edu.univassouras.onlinequiz"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "555294097333-juaoigvb0fbacl1i04n8rrotepp3j7h8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCiT7T5OX7zn-ZVyEfoC2zL8GJaGY51LIM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "555294097333-juaoigvb0fbacl1i04n8rrotepp3j7h8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

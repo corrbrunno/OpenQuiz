@@ -1,4 +1,4 @@
-import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 import type { Atribuicao, ConteudoPergunta, TipoPergunta } from '$lib/quiz/tipos';
 
 /** O questionário em si. O código da sala NÃO fica aqui: ele nasce com a sessão. */
@@ -87,9 +87,17 @@ export const participantes = pgTable(
 			.references(() => sessoes.id, { onDelete: 'cascade' }),
 		uid: text('uid').notNull(),
 		nome: text('nome').notNull(),
-		entrouEm: timestamp('entrou_em', { withTimezone: true }).notNull().defaultNow()
+		entrouEm: timestamp('entrou_em', { withTimezone: true }).notNull().defaultNow(),
+		/** O app avisa quando vai para segundo plano: quem está fora recebe push da próxima pergunta. */
+		emApp: boolean('em_app').notNull().default(true),
+		ultimaAtividadeEm: timestamp('ultima_atividade_em', { withTimezone: true })
+			.notNull()
+			.defaultNow()
 	},
-	(tabela) => [uniqueIndex('participantes_sessao_uid_unico').on(tabela.sessaoId, tabela.uid)]
+	(tabela) => [
+		uniqueIndex('participantes_sessao_uid_unico').on(tabela.sessaoId, tabela.uid),
+		index('participantes_sem_sinal_idx').on(tabela.sessaoId, tabela.ultimaAtividadeEm)
+	]
 );
 
 /**
@@ -137,5 +145,25 @@ export const respostas = pgTable(
 			tabela.perguntaId,
 			tabela.participanteId
 		)
+	]
+);
+
+/**
+ * Token de push por aparelho (o FCM troca o token sozinho; o upsert cuida do resto).
+ * Não guarda segredo nenhum: token só serve para endereçar a notificação.
+ */
+export const tokensPush = pgTable(
+	'tokens_push',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		uid: text('uid').notNull(),
+		token: text('token').notNull(),
+		plataforma: text('plataforma').notNull().default('android'),
+		criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+		atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow()
+	},
+	(tabela) => [
+		uniqueIndex('tokens_push_token_unico').on(tabela.token),
+		index('tokens_push_uid_idx').on(tabela.uid)
 	]
 );

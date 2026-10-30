@@ -11,6 +11,7 @@
 		aplicarFonte
 	} from '$lib/client/stores/accessibility.svelte';
 	import { authState, iniciarAuth } from '$lib/client/stores/auth.svelte';
+	import { registrarPush } from '$lib/client/push';
 	import {
 		acompanharAtividade,
 		garantirSessao,
@@ -48,7 +49,9 @@
 			return;
 		}
 
-		void garantirSessao(usuario);
+		// push depende da sessão do app já aberta (o token viaja com X-Sessao)
+		void garantirSessao(usuario).then(() => registrarPush(usuario));
+
 		return acompanharAtividade(usuario);
 	});
 </script>
