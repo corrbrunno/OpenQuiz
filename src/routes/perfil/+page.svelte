@@ -7,6 +7,7 @@
 		confirmarBiometria,
 		definirPreferenciaNativa,
 		ehNativo,
+		mensagemDaConfirmacao,
 		preferenciaNativaAtiva,
 		situacaoBiometria
 	} from '$lib/client/nativo';
@@ -64,9 +65,9 @@
 					return;
 				}
 
-				const autorizado = await confirmarBiometria('Ativar entrada nativa');
-				if (!autorizado) {
-					avisoNativo = 'Ativação cancelada.';
+				const confirmacao = await confirmarBiometria('Ativar entrada nativa');
+				if (!confirmacao.ok) {
+					avisoNativo = mensagemDaConfirmacao(confirmacao);
 					return;
 				}
 

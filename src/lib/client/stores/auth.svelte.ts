@@ -1,13 +1,21 @@
 import { browser } from '$app/environment';
 import type { User } from 'firebase/auth';
 import { getFirebase } from '../firebase';
-import { confirmarBiometria, ehNativo, preferenciaNativaAtiva } from '../nativo';
+import {
+	confirmarBiometria,
+	ehNativo,
+	mensagemDaConfirmacao,
+	preferenciaNativaAtiva,
+	situacaoBiometria
+} from '../nativo';
 import { esquecerPush } from '../push';
 
 export const authState = $state({
 	user: null as User | null,
 	carregando: true,
-	erro: ''
+	erro: '',
+	/** Recado informativo (não é erro): ex. entrada nativa indisponível no aparelho. */
+	aviso: ''
 });
 
 let iniciado = false;
@@ -46,18 +54,68 @@ function mensagemDeErro(erro: unknown): string {
 	}
 }
 
-/**
- * Entrada nativa: se a conta ativou o recurso NESTE aparelho, o diálogo do sistema vem
- * depois do login remoto. Cancelou/indisponível → desloga e a tela de entrada continua.
- */
-async function exigirEntradaNativa(usuario: User | null): Promise<void> {
-	if (!usuario || !ehNativo() || !preferenciaNativaAtiva(usuario.uid)) return;
+let autorizacao: { uid: string; promessa: Promise<boolean> } | null = null;
 
-	const autorizado = await confirmarBiometria('Confirmar entrada no Online Quiz');
-	if (!autorizado) {
-		await sair();
-		throw new Error('Entrada nativa não autorizada');
+/** Sai da conta sem passar pelo `sair()`: cancelar a biometria não apaga o token de push. */
+async function encerrarSemConfirmacao(): Promise<void> {
+	try {
+		const { auth, authMod } = await getFirebase();
+		await authMod.signOut(auth);
+	} catch {
+		// se nem deslogar deu, a área privada continua fechada — o usuário não é aplicado
 	}
+}
+
+/**
+ * Porteiro único da área privada. Roda em DOIS caminhos:
+ *  - login explícito (senha ou Google);
+ *  - restauração da sessão pelo Firebase quando o app reabre, que é justamente a
+ *    "entrada" que não passa por senha nenhuma.
+ * Chamadas simultâneas para o mesmo usuário compartilham a mesma promessa (um só diálogo).
+ */
+async function autorizar(usuario: User): Promise<boolean> {
+	if (autorizacao?.uid === usuario.uid) return autorizacao.promessa;
+
+	const promessa = (async () => {
+		authState.aviso = '';
+
+		if (!ehNativo() || !preferenciaNativaAtiva(usuario.uid)) return true;
+
+		const situacao = await situacaoBiometria();
+		if (!situacao.podeConfirmar) {
+			// aparelho sem biometria e sem PIN/padrão: trancar aqui seria trancar para sempre
+			authState.aviso =
+				'Entrada nativa indisponível neste aparelho (sem biometria e sem PIN/padrão). Definimos a entrada por senha até o aparelho ter uma proteção de tela.';
+			return true;
+		}
+
+		const resultado = await confirmarBiometria('Confirmar entrada no Online Quiz');
+		if (resultado.ok) return true;
+
+		authState.erro = mensagemDaConfirmacao(resultado);
+		await encerrarSemConfirmacao();
+		return false;
+	})();
+
+	autorizacao = { uid: usuario.uid, promessa };
+	void promessa.finally(() => {
+		if (autorizacao?.promessa === promessa) autorizacao = null;
+	});
+
+	return promessa;
+}
+
+/** Só publica o usuário depois de autorizado — é isso que mantém a tela privada fechada. */
+async function aplicarUsuario(usuario: User | null): Promise<void> {
+	if (!usuario) {
+		authState.user = null;
+		authState.carregando = false;
+		return;
+	}
+
+	const liberado = await autorizar(usuario);
+	authState.user = liberado ? usuario : null;
+	authState.carregando = false;
 }
 
 export async function iniciarAuth(): Promise<void> {
@@ -67,8 +125,7 @@ export async function iniciarAuth(): Promise<void> {
 	try {
 		const { auth, authMod } = await getFirebase();
 		authMod.onAuthStateChanged(auth, (user) => {
-			authState.user = user;
-			authState.carregando = false;
+			void aplicarUsuario(user);
 		});
 		await concluirLoginGoogle();
 	} catch (erro) {
@@ -82,8 +139,7 @@ export async function entrar(email: string, senha: string): Promise<boolean> {
 	try {
 		const { auth, authMod } = await getFirebase();
 		const credencial = await authMod.signInWithEmailAndPassword(auth, email.trim(), senha);
-		await exigirEntradaNativa(credencial.user);
-		return true;
+		return await autorizar(credencial.user);
 	} catch (erro) {
 		authState.erro = mensagemDeErro(erro);
 		return false;
@@ -111,7 +167,7 @@ export async function entrarComGoogle(): Promise<boolean> {
 
 		try {
 			const credencial = await authMod.signInWithPopup(auth, provedor);
-			await exigirEntradaNativa(credencial.user);
+			if (!(await autorizar(credencial.user))) return false;
 		} catch (erro) {
 			const codigo = (erro as { code?: string })?.code ?? '';
 			const semPopup =
@@ -134,7 +190,7 @@ export async function concluirLoginGoogle(): Promise<void> {
 	try {
 		const { auth, authMod } = await getFirebase();
 		const resultado = await authMod.getRedirectResult(auth);
-		await exigirEntradaNativa(resultado?.user ?? null);
+		if (resultado?.user) await autorizar(resultado.user);
 	} catch (erro) {
 		authState.erro = mensagemDeErro(erro);
 	}
@@ -154,6 +210,7 @@ export async function redefinirSenha(email: string): Promise<boolean> {
 
 export async function sair(): Promise<void> {
 	authState.erro = '';
+	authState.aviso = '';
 	try {
 		// o aparelho deixa de receber notificação desta conta
 		if (authState.user) await esquecerPush(authState.user);

@@ -167,6 +167,9 @@
 				{#if erro || authState.erro}
 					<p class="text-destructive text-sm" role="alert">{erro || authState.erro}</p>
 				{/if}
+				{#if authState.aviso}
+					<p class="text-muted-foreground text-sm" role="status">{authState.aviso}</p>
+				{/if}
 				{#if aviso}
 					<p class="text-muted-foreground text-sm" role="status">{aviso}</p>
 				{/if}

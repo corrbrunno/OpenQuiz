@@ -72,12 +72,22 @@ export async function situacaoBiometria(): Promise<SituacaoNativa> {
 	}
 }
 
-/** Abre o diálogo do sistema (biometria ou PIN/padrão como alternativa). */
-export async function confirmarBiometria(motivo: string): Promise<boolean> {
-	if (!ehNativo()) return false;
+export type CodigoConfirmacao = 'ok' | 'cancelado' | 'bloqueado' | 'indisponivel' | 'falhou';
+
+export type ResultadoConfirmacao = { ok: boolean; codigo: CodigoConfirmacao };
+
+const CANCELAMENTOS = ['userCancel', 'appCancel', 'systemCancel', 'userFallback'];
+const INDISPONIVEIS = ['biometryNotAvailable', 'biometryNotEnrolled', 'passcodeNotSet'];
+
+/**
+ * Abre o diálogo do sistema (biometria, com PIN/padrão/desenho como alternativa).
+ * O motivo vem classificado para a tela poder dizer o que houve, em vez de "falhou".
+ */
+export async function confirmarBiometria(motivo: string): Promise<ResultadoConfirmacao> {
+	if (!ehNativo()) return { ok: false, codigo: 'indisponivel' };
 
 	const situacao = await situacaoBiometria();
-	if (!situacao.podeConfirmar) return false;
+	if (!situacao.podeConfirmar) return { ok: false, codigo: 'indisponivel' };
 
 	try {
 		const { BiometricAuth } = await import('@aparajita/capacitor-biometric-auth');
@@ -88,9 +98,28 @@ export async function confirmarBiometria(motivo: string): Promise<boolean> {
 			androidSubtitle: motivo,
 			allowDeviceCredential: true
 		});
-		return true;
-	} catch {
-		// cancelado, falhou ou bloqueado: a área privada continua fechada
-		return false;
+		return { ok: true, codigo: 'ok' };
+	} catch (erro) {
+		const codigo = String((erro as { code?: string })?.code ?? '');
+
+		if (CANCELAMENTOS.includes(codigo)) return { ok: false, codigo: 'cancelado' };
+		if (codigo === 'biometryLockout') return { ok: false, codigo: 'bloqueado' };
+		if (INDISPONIVEIS.includes(codigo)) return { ok: false, codigo: 'indisponivel' };
+
+		return { ok: false, codigo: 'falhou' };
+	}
+}
+
+/** Texto para a tela de entrada — cada caso tem sua explicação. */
+export function mensagemDaConfirmacao(resultado: ResultadoConfirmacao): string {
+	switch (resultado.codigo) {
+		case 'cancelado':
+			return 'Entrada cancelada: a área privada continua bloqueada.';
+		case 'bloqueado':
+			return 'Biometria bloqueada por tentativas. Entre com senha para liberar de novo.';
+		case 'indisponivel':
+			return 'Biometria indisponível neste aparelho. Entre com senha.';
+		default:
+			return 'Não foi possível confirmar sua identidade. Entre com senha.';
 	}
 }
