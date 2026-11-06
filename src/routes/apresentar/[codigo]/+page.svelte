@@ -3,6 +3,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
 	import PreviaPergunta from '$lib/components/quiz/PreviaPergunta.svelte';
+	import ChatSala from '$lib/components/quiz/ChatSala.svelte';
 	import TabelaRanking from '$lib/components/quiz/TabelaRanking.svelte';
 	import { mensagemDeErro } from '$lib/client/api';
 	import { assinarSala, controlarSessao, painelDoApresentador, type PainelDoApresentador } from '$lib/client/sessao';
@@ -245,5 +246,8 @@
 		{#if erro}
 			<p class="text-destructive text-sm" role="alert">{erro}</p>
 		{/if}
+
+		<!-- quem inicia a sala também conversa: o painel só abre para o dono -->
+		<ChatSala {codigo} usuario={authState.user!} souDono={true} meuUid={authState.user!.uid} />
 	{/if}
 </div>

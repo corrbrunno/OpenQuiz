@@ -107,8 +107,8 @@ Para a conferência manual, com duas contas:
 
 ## Limitações conhecidas
 
-- O botão de pausa aparece para o dono no cabeçalho do chat, na página da sala. O painel
-  `/apresentar` ainda não tem o botão — o apresentador precisa abrir `/sala/<codigo>` para pausar.
+- O chat aparece nas duas telas do organizador e do participante (`/apresentar/<codigo>` e
+  `/sala/<codigo>`), com o botão de pausa visível para o dono da sessão.
 - O histórico é limitado às 100 mensagens mais recentes por sala.
 - Texto limitado a 500 caracteres e sem edição/exclusão de mensagem.
 - Sem RLS: a autorização é de servidor (ver decisão de arquitetura).
