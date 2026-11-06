@@ -1,14 +1,15 @@
 import { json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { getDb, isDbConfigured } from '$lib/server/db';
-import { sessoes } from '$lib/server/db/schema';
+import { mensagens, sessoes } from '$lib/server/db/schema';
 import { usuarioDaRequisicao } from '$lib/server/auth';
 import { exigirSessao } from '$lib/server/sessao-usuario';
 import { buscarSessaoPorCodigo, payloadDoPainel } from '$lib/server/sessoes';
 import { notificarNovaPergunta } from '$lib/server/push-sala';
+import { publicar } from '$lib/server/barramento';
 import type { RequestHandler } from './$types';
 
-const ACOES = ['avancar', 'voltar', 'encerrar'] as const;
+const ACOES = ['avancar', 'voltar', 'encerrar', 'chat'] as const;
 
 /** Painel do apresentador: pergunta no ar, quem já respondeu e o placar. */
 export const GET: RequestHandler = async ({ params, request }) => {
@@ -45,7 +46,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		return json({ erro: 'Só quem criou o questionário controla a sessão.' }, { status: 403 });
 	}
 
-	const corpo = (await request.json().catch(() => null)) as { acao?: string } | null;
+	const corpo = (await request.json().catch(() => null)) as
+		| { acao?: string; ativo?: boolean }
+		| null;
 	const acao = corpo?.acao ?? '';
 	if (!(ACOES as readonly string[]).includes(acao)) {
 		return json({ erro: 'Ação inválida: use avançar, voltar ou encerrar.' }, { status: 400 });
@@ -53,12 +56,33 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	const db = getDb();
 
+	if (acao === 'chat') {
+		if (typeof corpo?.ativo !== 'boolean') {
+			return json({ erro: 'Informe ativo: true ou false.' }, { status: 400 });
+		}
+
+		const [atualizada] = await db
+			.update(sessoes)
+			.set({ chatAtivo: corpo.ativo })
+			.where(eq(sessoes.id, sessao.id))
+			.returning({ codigo: sessoes.codigo, chatAtivo: sessoes.chatAtivo });
+
+		// avisa quem está com o chat aberto na hora
+		publicar(sessao.id, 'chat', { ativo: corpo.ativo, encerrada: false });
+
+		return json({ sessao: atualizada });
+	}
+
 	if (acao === 'encerrar') {
 		const [atualizada] = await db
 			.update(sessoes)
 			.set({ status: 'encerrada', encerradaEm: new Date() })
 			.where(eq(sessoes.id, sessao.id))
 			.returning({ codigo: sessoes.codigo, status: sessoes.status });
+
+		// o chat desaparece com a rodada
+		await db.delete(mensagens).where(eq(mensagens.sessaoId, sessao.id));
+		publicar(sessao.id, 'chat', { ativo: false, encerrada: true });
 
 		return json({ sessao: atualizada });
 	}

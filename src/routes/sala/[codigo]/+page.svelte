@@ -13,6 +13,7 @@
 	import * as Card from '$lib/components/ui/card';
 	import ResponderPergunta from '$lib/components/quiz/ResponderPergunta.svelte';
 	import TabelaRanking from '$lib/components/quiz/TabelaRanking.svelte';
+	import ChatSala from '$lib/components/quiz/ChatSala.svelte';
 	import { mensagemDeErro } from '$lib/client/api';
 	import { assinarSala, entrarNaSala, estadoDaSala, responderPergunta, type EstadoDaSala } from '$lib/client/sessao';
 	import { tocarSom } from '$lib/client/sons.svelte';
@@ -278,5 +279,14 @@
 				</Card.Content>
 			</Card.Root>
 		{/if}
+	{/if}
+
+	{#if estado && authState.user}
+		<ChatSala
+			{codigo}
+			usuario={authState.user}
+			souDono={estado.souDono ?? false}
+			meuUid={authState.user.uid}
+		/>
 	{/if}
 </div>

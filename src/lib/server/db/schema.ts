@@ -66,6 +66,8 @@ export const sessoes = pgTable(
 		donoUid: text('dono_uid').notNull(),
 		codigo: varchar('codigo', { length: 6 }).notNull(),
 		modo: text('modo').$type<ModoSessao>().notNull().default('conduzida'),
+		/** O apresentador pode pausar o chat durante a rodada. */
+		chatAtivo: boolean('chat_ativo').notNull().default(true),
 		status: text('status').$type<StatusSessao>().notNull().default('aberta'),
 		perguntaAtual: integer('pergunta_atual').notNull().default(1),
 		abertaEm: timestamp('aberta_em', { withTimezone: true }).notNull().defaultNow(),
@@ -166,4 +168,23 @@ export const tokensPush = pgTable(
 		uniqueIndex('tokens_push_token_unico').on(tabela.token),
 		index('tokens_push_uid_idx').on(tabela.uid)
 	]
+);
+
+/**
+ * Mensagens do chat da sala. A sessão é a sala: quem entrou nela lê e escreve.
+ * Sem tabela de membros própria — o vínculo é o mesmo de `participantes`.
+ */
+export const mensagens = pgTable(
+	'mensagens',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		sessaoId: uuid('sessao_id')
+			.notNull()
+			.references(() => sessoes.id, { onDelete: 'cascade' }),
+		autorUid: text('autor_uid').notNull(),
+		autorNome: text('autor_nome').notNull(),
+		texto: text('texto').notNull(),
+		criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow()
+	},
+	(tabela) => [index('mensagens_sessao_idx').on(tabela.sessaoId, tabela.criadoEm)]
 );
