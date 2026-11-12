@@ -40,9 +40,21 @@ export async function usuarioDoToken(idToken: string): Promise<UsuarioAutenticad
 	};
 }
 
+/**
+ * Cache por requisição: o hook do servidor já validou o token, então o handler reaproveita
+ * o resultado em vez de bater de novo na API do Firebase. Chave = o próprio `Request`
+ * (morre junto com a requisição, sem TTL e sem risco de servir token revogado depois).
+ */
+const usuariosPorRequisicao = new WeakMap<Request, UsuarioAutenticado | null>();
+
 export async function usuarioDaRequisicao(request: Request): Promise<UsuarioAutenticado | null> {
+	if (usuariosPorRequisicao.has(request)) return usuariosPorRequisicao.get(request) ?? null;
+
 	const autorizacao = request.headers.get('authorization') ?? '';
 	const idToken = autorizacao.startsWith('Bearer ') ? autorizacao.slice(7) : '';
+	const usuario = await usuarioDoToken(idToken);
 
-	return usuarioDoToken(idToken);
+	usuariosPorRequisicao.set(request, usuario);
+
+	return usuario;
 }

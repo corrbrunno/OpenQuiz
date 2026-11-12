@@ -206,7 +206,11 @@ const quizId = criado.corpo.id;
 
 const lista = await chamar('/api/quizzes', dono.idToken);
 conferir('lista do dono tem 1', lista.corpo.quizzes.length, 1);
-conferir('sem codigo na lista (o codigo nasce na sessao)', 'codigo' in lista.corpo.quizzes[0], false);
+conferir(
+	'sem codigo na lista (o codigo nasce na sessao)',
+	'codigo' in lista.corpo.quizzes[0],
+	false
+);
 
 const listaDeOutro = await chamar('/api/quizzes', jogadorA.idToken);
 conferir('outro usuario nao ve o questionario', listaDeOutro.corpo.quizzes.length, 0);
@@ -214,7 +218,11 @@ conferir('outro usuario nao ve o questionario', listaDeOutro.corpo.quizzes.lengt
 const paraEditar = await chamar(`/api/quizzes/${quizId}`, dono.idToken);
 conferir('carregar para edicao -> 200', paraEditar.status, 200);
 conferir('perguntas com gabarito para o editor', paraEditar.corpo.perguntas.length, 5);
-conferir('gabarito veio no formato comum', paraEditar.corpo.perguntas[0].gabarito.atribuicoes.length, 1);
+conferir(
+	'gabarito veio no formato comum',
+	paraEditar.corpo.perguntas[0].gabarito.atribuicoes.length,
+	1
+);
 const idsOriginais = paraEditar.corpo.perguntas.map((p) => p.id);
 
 const semPermissao = await chamar(`/api/quizzes/${quizId}`, jogadorA.idToken);
@@ -354,7 +362,11 @@ const painel = await chamar(`/api/sessoes/${codigo}/controle`, dono.idToken);
 conferir('painel do dono -> 200', painel.status, 200);
 conferir('2 participantes', painel.corpo.participantes.length, 2);
 conferir('2 responderam a pergunta no ar', painel.corpo.responderamAtual, 2);
-conferir('gabarito disponivel para o apresentador', painel.corpo.gabaritoAtual.atribuicoes.length, 1);
+conferir(
+	'gabarito disponivel para o apresentador',
+	painel.corpo.gabaritoAtual.atribuicoes.length,
+	1
+);
 conferir('placar: A na frente', painel.corpo.ranking[0].acertos, 1);
 conferir('placar: B atras', painel.corpo.ranking[1].acertos, 0);
 
@@ -412,14 +424,22 @@ const encerrou = await chamar(`/api/sessoes/${codigo}/controle`, dono.idToken, {
 conferir('encerrar -> 200', encerrou.status, 200);
 conferir('status encerrada', encerrou.corpo.sessao.status, 'encerrada');
 
-const respostaDepoisDeEncerrar = await chamar(`/api/sessoes/${codigo}/respostas`, jogadorB.idToken, {
-	metodo: 'POST',
-	corpo: { perguntaId: pergunta1.id, atribuicoes: [CERTO_MC] }
-});
+const respostaDepoisDeEncerrar = await chamar(
+	`/api/sessoes/${codigo}/respostas`,
+	jogadorB.idToken,
+	{
+		metodo: 'POST',
+		corpo: { perguntaId: pergunta1.id, atribuicoes: [CERTO_MC] }
+	}
+);
 conferir('responder depois de encerrar -> 409', respostaDepoisDeEncerrar.status, 409);
 
 const finalDoJogador = await chamar(`/api/sessoes/${codigo}`, jogadorB.idToken);
-conferir('jogador ve o resumo final depois de encerrar', finalDoJogador.corpo.ranking !== null, true);
+conferir(
+	'jogador ve o resumo final depois de encerrar',
+	finalDoJogador.corpo.ranking !== null,
+	true
+);
 conferir('resumo final ordenado: A primeiro', finalDoJogador.corpo.ranking[0].acertos, 2);
 conferir('resumo final: B com 0', finalDoJogador.corpo.ranking[1].acertos, 0);
 conferir('B sabe quem ele e no placar', finalDoJogador.corpo.participanteId !== null, true);
@@ -477,10 +497,14 @@ console.log('\n=== TEMPO REAL (SSE) ===');
 
 	try {
 		const resposta = await fetch(`${base}/api/sessoes/${codigo}/eventos`, {
-			headers: { Authorization: `Bearer ${jogadorA.idToken}` },
+			headers: {
+				Authorization: `Bearer ${jogadorA.idToken}`,
+				'X-Sessao': await sessaoDe(jogadorA.idToken)
+			},
 			signal: controle.signal
 		});
 
+		conferir('SSE com sessao vigente -> 200', resposta.status, 200);
 		tipoConteudo = String(resposta.headers.get('content-type'));
 		const leitor = resposta.body.getReader();
 		const primeiro = await leitor.read();
@@ -498,6 +522,84 @@ console.log('\n=== TEMPO REAL (SSE) ===');
 	conferir('stream reconhece que nao e o dono', texto.includes('"souDono":false'), true);
 }
 
+console.log('\n=== BLOCO 6: AUTENTICACAO E AUTORIZACAO (MATRIZ) ===');
+
+// A6-01: cada conta le o que e dela.
+const leituraPropria = await chamar(`/api/quizzes/${quizId}`, dono.idToken);
+conferir('A6-01 dono le o proprio questionario -> 200', leituraPropria.status, 200);
+conferir(
+	'A6-01 gabarito disponivel para o dono',
+	leituraPropria.corpo.perguntas[0].gabarito !== null,
+	true
+);
+
+// A6-02: leitura de dado de outra conta.
+const leituraAlheia = await chamar(`/api/quizzes/${quizId}`, jogadorA.idToken);
+conferir('A6-02 outra conta le o questionario -> 404', leituraAlheia.status, 404);
+conferir(
+	'A6-02 negativa nao vaza gabarito',
+	JSON.stringify(leituraAlheia.corpo).includes('atribuicoes'),
+	false
+);
+
+// A6-03: troca de dono/papel pelo corpo. Autoria e posse nunca vem do cliente.
+const trocaDeDono = await chamar(`/api/quizzes/${quizId}`, dono.idToken, {
+	metodo: 'PUT',
+	corpo: {
+		titulo: 'Prova de teste (dono tentando trocar)',
+		donoUid: jogadorA.uid,
+		dono_uid: jogadorA.uid,
+		role: 'professor',
+		perguntas: paraAtualizar
+	}
+});
+conferir('A6-03 PUT com dono no corpo -> 200 (campo ignorado)', trocaDeDono.status, 200);
+const [donoNoBanco] = await sql`select dono_uid from quizzes where id = ${quizId}`;
+conferir('A6-03 dono_uid intacto no banco', donoNoBanco.dono_uid, dono.uid);
+const depoisDaTroca = await chamar(`/api/quizzes/${quizId}`, jogadorA.idToken);
+conferir('A6-03 conta A continua sem acesso -> 404', depoisDaTroca.status, 404);
+const excluirAlheio = await chamar(`/api/quizzes/${quizId}`, jogadorA.idToken, {
+	metodo: 'DELETE'
+});
+conferir('A6-03 conta A nao exclui quiz alheio -> 404', excluirAlheio.status, 404);
+const [quizAindaExiste] = await sql`select count(*)::int as n from quizzes where id = ${quizId}`;
+conferir('A6-03 questionario continua no banco', quizAindaExiste.n, 1);
+
+// A6-04 e A6-05: chat da sala. A entra, B fica fora.
+const salaDoChat = await chamar('/api/sessoes', dono.idToken, {
+	metodo: 'POST',
+	corpo: { quizId, modo: 'livre' }
+});
+const codigoChat = salaDoChat.corpo.sessao.codigo;
+await chamar(`/api/sessoes/${codigoChat}/entrar`, jogadorA.idToken, { metodo: 'POST', corpo: {} });
+
+const mensagemForjada = await chamar(`/api/sessoes/${codigoChat}/mensagens`, jogadorA.idToken, {
+	metodo: 'POST',
+	corpo: { texto: 'Mensagem de A', autorUid: jogadorB.uid, autor_uid: jogadorB.uid }
+});
+conferir('A6-04 A envia no proprio nome -> 201', mensagemForjada.status, 201);
+conferir(
+	'A6-04 autoria vem do token, nao do corpo',
+	mensagemForjada.corpo.mensagem.autorUid,
+	jogadorA.uid
+);
+
+const historicoAlheio = await chamar(`/api/sessoes/${codigoChat}/mensagens`, jogadorB.idToken);
+conferir('A6-05 B le o chat da sala de A -> 403', historicoAlheio.status, 403);
+const escritaAlheia = await chamar(`/api/sessoes/${codigoChat}/mensagens`, jogadorB.idToken, {
+	metodo: 'POST',
+	corpo: { texto: 'invasao' }
+});
+conferir('A6-05 B escreve na sala de A -> 403', escritaAlheia.status, 403);
+const painelAlheio = await chamar(`/api/sessoes/${codigoChat}/controle`, jogadorB.idToken);
+conferir('A6-05 B abre o painel do apresentador -> 403', painelAlheio.status, 403);
+
+await chamar(`/api/sessoes/${codigoChat}/controle`, dono.idToken, {
+	metodo: 'POST',
+	corpo: { acao: 'encerrar' }
+});
+await sql`delete from sessoes where codigo = ${codigoChat}`;
+
 console.log('\n=== SESSAO REVOGADA (cenario de defesa do bloco 6) ===');
 await fetch(`${base}/api/sessao`, {
 	method: 'DELETE',
@@ -511,6 +613,30 @@ const aposRevogar = await chamar('/api/quizzes', dono.idToken, {
 	sessao: sessaoDono
 });
 conferir('operar com sessao revogada -> 401', aposRevogar.status, 401);
+
+// A6-06 na LEITURA: antes da guarda global so a escrita era barrada.
+const leituraRevogada = await chamar('/api/quizzes', dono.idToken, { sessao: sessaoDono });
+conferir('A6-06 lista privada com sessao revogada -> 401', leituraRevogada.status, 401);
+conferir('A6-06 codigo sessao-invalida', leituraRevogada.corpo.codigo, 'sessao-invalida');
+
+const gabaritoRevogado = await chamar(`/api/quizzes/${quizId}`, dono.idToken, {
+	sessao: sessaoDono
+});
+conferir('A6-06 gabarito com sessao revogada -> 401', gabaritoRevogado.status, 401);
+
+const salaRevogada = await chamar(`/api/sessoes/${codigo}`, dono.idToken, { sessao: sessaoDono });
+conferir('A6-06 sala com sessao revogada -> 401', salaRevogada.status, 401);
+
+{
+	const resposta = await fetch(`${base}/api/sessoes/${codigo}/eventos`, {
+		headers: { Authorization: `Bearer ${dono.idToken}`, 'X-Sessao': sessaoDono }
+	});
+	conferir('A6-06 stream com sessao revogada -> 401', resposta.status, 401);
+}
+
+const semToken = await chamar('/api/quizzes', null);
+conferir('A6-06 sem token nenhum -> 401', semToken.status, 401);
+conferir('A6-06 codigo nao-autenticado', semToken.corpo.codigo, 'nao-autenticado');
 
 const novaSessao = await chamar('/api/sessao', dono.idToken);
 conferir('sessao nova volta a funcionar -> 200', novaSessao.status, 200);
@@ -550,11 +676,17 @@ console.log('\n=== LIMPEZA ===');
 await sql`delete from quizzes where id = ${quizId}`;
 const depois = await contagensDoQuiz();
 conferir('cascade limpou tudo deste quiz', Object.values(depois), [0, 0, 0, 0, 0]);
-conferir('nao sobrou quiz de teste', (await sql`select count(*)::int as n from quizzes where dono_email like 'teste-api-%'`)[0].n, 0);
+conferir(
+	'nao sobrou quiz de teste',
+	(await sql`select count(*)::int as n from quizzes where dono_email like 'teste-api-%'`)[0].n,
+	0
+);
 conferir('usuario dono removido', await apagarUsuario(dono.idToken), true);
 conferir('usuario A removido', await apagarUsuario(jogadorA.idToken), true);
 conferir('usuario B removido', await apagarUsuario(jogadorB.idToken), true);
 
 await sql.end();
-console.log(`\n### RESULTADO: ${falhas === 0 ? 'TODOS OS CASOS PASSARAM' : falhas + ' FALHA(S)'} ###`);
+console.log(
+	`\n### RESULTADO: ${falhas === 0 ? 'TODOS OS CASOS PASSARAM' : falhas + ' FALHA(S)'} ###`
+);
 process.exit(falhas === 0 ? 0 : 1);

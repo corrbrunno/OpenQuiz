@@ -1,5 +1,5 @@
 import type { User } from 'firebase/auth';
-import { chamar } from './api';
+import { cabecalhosDe, chamar } from './api';
 import type { Atribuicao, PerguntaSalva, RespostaComum } from '$lib/quiz/tipos';
 
 export type ModoSessao = 'conduzida' | 'livre';
@@ -136,11 +136,13 @@ export function assinarSala(
 			controle = new AbortController();
 
 			try {
-				const idToken = await usuario.getIdToken();
 				const resposta = await fetch(`/api/sessoes/${encodeURIComponent(codigo)}/eventos`, {
-					headers: { Authorization: `Bearer ${idToken}` },
+					headers: await cabecalhosDe(usuario),
 					signal: controle.signal
 				});
+
+				// Sessão revogada/expirada (401) ou fora da sala (403): reconectar não resolve.
+				if (resposta.status === 401 || resposta.status === 403) return;
 
 				if (!resposta.ok || !resposta.body) throw new Error(`stream ${resposta.status}`);
 

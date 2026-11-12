@@ -83,12 +83,36 @@ export function sessaoDoCabecalho(request: Request): string {
 	return request.headers.get('x-sessao') ?? '';
 }
 
+type SessaoVigente = NonNullable<Awaited<ReturnType<typeof sessaoValida>>>;
+
+/**
+ * Sessão validada UMA vez por requisição: o hook do servidor faz a guarda e os handlers
+ * reaproveitam o resultado. A chave é o próprio `Request`, então não existe cache entre
+ * requisições — revogar a sessão vale imediatamente para a próxima chamada.
+ */
+const sessoesPorRequisicao = new WeakMap<Request, SessaoVigente | null>();
+
+export async function sessaoDaRequisicao(
+	request: Request,
+	usuario: UsuarioAutenticado
+): Promise<SessaoVigente | null> {
+	if (sessoesPorRequisicao.has(request)) return sessoesPorRequisicao.get(request) ?? null;
+
+	const sessao = await sessaoValida(usuario, sessaoDoCabecalho(request));
+	sessoesPorRequisicao.set(request, sessao);
+
+	return sessao;
+}
+
 /**
  * Guarda das rotas que MUDAM dados: sem sessão de app válida, a operação não passa.
  * É o cenário "operar com sessão revogada/expirada → o backend bloqueia".
+ *
+ * A mesma regra vale para toda a API no `hooks.server.ts`; esta checagem continua aqui
+ * como segunda barreira (e é o que garante o 401 correto se a rota for chamada de outro lugar).
  */
 export async function exigirSessao(request: Request, usuario: UsuarioAutenticado) {
-	const sessao = await sessaoValida(usuario, sessaoDoCabecalho(request));
+	const sessao = await sessaoDaRequisicao(request, usuario);
 	if (sessao) return null;
 
 	return json(

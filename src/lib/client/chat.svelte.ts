@@ -1,5 +1,5 @@
 import type { User } from 'firebase/auth';
-import { chamar } from './api';
+import { cabecalhosDe, chamar } from './api';
 
 export type MensagemSala = {
 	id: string;
@@ -35,9 +35,7 @@ export function criarChat() {
 		}
 
 		if (entrou) {
-			mensagens.sort(
-				(a, b) => a.criadoEm.localeCompare(b.criadoEm) || a.id.localeCompare(b.id)
-			);
+			mensagens.sort((a, b) => a.criadoEm.localeCompare(b.criadoEm) || a.id.localeCompare(b.id));
 		}
 	}
 
@@ -68,11 +66,13 @@ export function criarChat() {
 				controle = new AbortController();
 
 				try {
-					const idToken = await usuario.getIdToken();
 					const resposta = await fetch(`/api/sessoes/${codigo}/chat/eventos`, {
-						headers: { Authorization: `Bearer ${idToken}` },
+						headers: await cabecalhosDe(usuario),
 						signal: controle.signal
 					});
+
+					// Sessão revogada/expirada (401) ou fora da sala (403): reconectar não resolve.
+					if (resposta.status === 401 || resposta.status === 403) return;
 
 					if (!resposta.ok || !resposta.body) throw new Error(`stream ${resposta.status}`);
 
