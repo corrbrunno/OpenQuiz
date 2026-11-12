@@ -600,6 +600,17 @@ await chamar(`/api/sessoes/${codigoChat}/controle`, dono.idToken, {
 });
 await sql`delete from sessoes where codigo = ${codigoChat}`;
 
+// A6-07: registrar o proprio token de push (o uid vem do token, nao do corpo).
+const tokenAparelho = `ExponentPushToken[teste-${Date.now()}]`;
+const registrouToken = await chamar('/api/push/token', jogadorA.idToken, {
+	metodo: 'POST',
+	corpo: { token: tokenAparelho, plataforma: 'android', uid: jogadorB.uid }
+});
+conferir('A6-07 A registra o proprio token -> 200', registrouToken.status, 200);
+const [donoDoToken] = await sql`select uid from tokens_push where token = ${tokenAparelho}`;
+conferir('A6-07 token gravado na conta de A', donoDoToken?.uid, jogadorA.uid);
+await sql`delete from tokens_push where token = ${tokenAparelho}`;
+
 console.log('\n=== SESSAO REVOGADA (cenario de defesa do bloco 6) ===');
 await fetch(`${base}/api/sessao`, {
 	method: 'DELETE',
