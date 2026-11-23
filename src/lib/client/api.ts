@@ -72,6 +72,14 @@ export async function enviarImagem(arquivo: File, usuario: User): Promise<string
 	return corpo.url;
 }
 
+/**
+ * Falha de transporte: `fetch` rejeitou (sem rede, DNS, servidor fora). É diferente de uma
+ * resposta de erro do servidor — só neste caso faz sentido guardar a operação para depois.
+ */
+export function semRede(erro: unknown): boolean {
+	return erro instanceof TypeError || (typeof navigator !== 'undefined' && !navigator.onLine);
+}
+
 export function mensagemDeErro(erro: unknown): string {
 	if (erro instanceof ErroApi) {
 		if (erro.codigo === 'sessao-invalida') {

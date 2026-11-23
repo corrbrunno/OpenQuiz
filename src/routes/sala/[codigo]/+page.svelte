@@ -14,8 +14,15 @@
 	import ResponderPergunta from '$lib/components/quiz/ResponderPergunta.svelte';
 	import TabelaRanking from '$lib/components/quiz/TabelaRanking.svelte';
 	import ChatSala from '$lib/components/quiz/ChatSala.svelte';
-	import { mensagemDeErro } from '$lib/client/api';
+	import { mensagemDeErro, semRede } from '$lib/client/api';
 	import { assinarSala, entrarNaSala, estadoDaSala, responderPergunta, type EstadoDaSala } from '$lib/client/sessao';
+	import { horaCurta, guardarSala, lerSala } from '$lib/client/cache-sala';
+	import {
+		enfileirar,
+		estaPendente,
+		pendentesDaSala,
+		sincronizarFila
+	} from '$lib/client/fila-offline';
 	import { tocarSom } from '$lib/client/sons.svelte';
 	import { authState } from '$lib/client/stores/auth.svelte';
 	import { acompanharPresenca } from '$lib/client/presenca';
@@ -39,6 +46,15 @@
 	let resultados = $state<Record<string, { acertos: number; total: number }>>({});
 	let enviando = $state(false);
 
+	// --- offline: cópia local da sala + fila de respostas -------------------------
+	let offline = $state(false);
+	let salvoEm = $state('');
+	let naFila = $state(0);
+	let sincronizando = $state(false);
+	let avisoFila = $state('');
+	/** Perguntas enviadas offline: já contam como respondidas para a tela, mas sem placar. */
+	let enviadasSemRede = $state<Record<string, boolean>>({});
+
 	const perguntas = $derived(estado?.perguntas ?? []);
 	const pergunta = $derived(perguntas[Math.min(indice, Math.max(perguntas.length - 1, 0))] ?? null);
 	const totalPerguntas = $derived(estado?.quiz.totalPerguntas ?? 0);
@@ -53,7 +69,7 @@
 				(gravada ? { acertos: gravada.acertos, total: gravada.total } : null))
 			: null
 	);
-	const respondida = $derived(Boolean(pergunta && resultado));
+	const respondida = $derived(Boolean(pergunta && (resultado || enviadasSemRede[pergunta.id])));
 	const pendente = $derived(pergunta ? (pendentes[pergunta.id] ?? null) : null);
 	const ultima = $derived(indice >= perguntas.length - 1);
 	const conduzida = $derived(estado?.sessao.modo === 'conduzida');
@@ -78,10 +94,80 @@
 			estado = atual;
 			indice = 0;
 			erro = '';
+			offline = false;
+			salvoEm = guardarSala(usuario.uid, codigo, atual);
 		} catch (falha) {
-			erro = mensagemDeErro(falha);
+			// Sem rede ainda dá para jogar a pergunta que já estava na tela: a cópia local
+			// mantém a sala de pé e a fila guarda a resposta até a conexão voltar.
+			const guardada = semRede(falha) ? lerSala(usuario.uid, codigo) : null;
+
+			if (guardada) {
+				estado = guardada.estado;
+				offline = true;
+				salvoEm = guardada.salvoEm;
+				erro = '';
+			} else {
+				erro = mensagemDeErro(falha);
+			}
 		} finally {
 			carregando = false;
+			atualizarFila();
+		}
+	}
+
+	function atualizarFila(): void {
+		const usuario = authState.user;
+		naFila = usuario && codigo ? pendentesDaSala(usuario.uid, codigo).length : 0;
+	}
+
+	/**
+	 * Esvazia a fila de respostas gravadas sem internet.
+	 *
+	 * Roda quando a rede volta, quando o app volta ao primeiro plano e no botão "Sincronizar
+	 * agora". Conflito (pergunta que saiu do ar, sessão encerrada) é descartado com aviso —
+	 * reenviar para sempre não resolveria e ainda confundiria o jogador.
+	 */
+	async function sincronizar(): Promise<void> {
+		const usuario = authState.user;
+		if (!usuario || sincronizando) return;
+
+		if (!navigator.onLine) {
+			offline = true;
+			return;
+		}
+
+		sincronizando = true;
+		avisoFila = '';
+
+		try {
+			const resultado = await sincronizarFila(usuario);
+			atualizarFila();
+
+			if (resultado.enviadas > 0 || resultado.descartadas > 0) {
+				avisoFila = [
+					resultado.enviadas > 0
+						? `${resultado.enviadas} resposta(s) sincronizada(s) com o servidor.`
+						: '',
+					resultado.descartadas > 0
+						? `${resultado.descartadas} descartada(s): a pergunta não estava mais disponível.`
+						: ''
+				]
+					.filter(Boolean)
+					.join(' ');
+
+				enviadasSemRede = {};
+				await carregar();
+				return;
+			}
+
+			if (resultado.erro === 'sessao') {
+				avisoFila = 'Sessão expirada (2 min). Entre novamente para enviar o que ficou na fila.';
+			} else if (resultado.erro === 'rede') {
+				offline = true;
+			}
+		} finally {
+			sincronizando = false;
+			atualizarFila();
 		}
 	}
 
@@ -108,6 +194,8 @@
 			}
 
 			estado = proximo;
+			offline = false;
+			salvoEm = guardarSala(usuario.uid, alvo, proximo);
 		});
 	});
 
@@ -121,6 +209,46 @@
 		}
 
 		void carregar();
+	});
+
+	/** Rede voltou (ou o app voltou ao primeiro plano): esvazia a fila sem o usuário pedir. */
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+
+		const usuario = authState.user;
+		if (!usuario) return;
+
+		if (!navigator.onLine) offline = true;
+
+		const aguardando = pendentesDaSala(usuario.uid, codigo).length;
+		atualizarFila();
+
+		// Fila que sobrou de uma sessão anterior (ou de antes do login): tenta subir já,
+		// fora do rastreamento do efeito para não reentrar em loop com `sincronizando`.
+		if (aguardando > 0 && navigator.onLine) setTimeout(() => void sincronizar(), 0);
+
+		const aoVoltarRede = () => {
+			offline = false;
+			void sincronizar();
+		};
+
+		const aoPerderRede = () => {
+			offline = true;
+		};
+
+		const aoVoltarApp = () => {
+			if (document.visibilityState === 'visible' && navigator.onLine) void sincronizar();
+		};
+
+		window.addEventListener('online', aoVoltarRede);
+		window.addEventListener('offline', aoPerderRede);
+		document.addEventListener('visibilitychange', aoVoltarApp);
+
+		return () => {
+			window.removeEventListener('online', aoVoltarRede);
+			window.removeEventListener('offline', aoPerderRede);
+			document.removeEventListener('visibilitychange', aoVoltarApp);
+		};
 	});
 
 
@@ -141,8 +269,25 @@
 				...resultados,
 				[alvo.id]: { acertos: salva.acertos, total: salva.total }
 			};
+			offline = false;
 		} catch (falha) {
-			erroResposta = mensagemDeErro(falha);
+			// Sem rede, a resposta não é perdida: vai para a fila do aparelho e sobe sozinha
+			// quando a conexão voltar (o servidor ignora reenvio, então não duplica).
+			if (semRede(falha)) {
+				enfileirar(usuario.uid, {
+					codigo,
+					perguntaId: alvo.id,
+					atribuicoes: pendente.atribuicoes,
+					criadoEm: new Date().toISOString()
+				});
+				enviadasSemRede = { ...enviadasSemRede, [alvo.id]: true };
+				offline = true;
+				avisoFila =
+					'Sem conexão: a resposta ficou guardada no aparelho e será enviada assim que a rede voltar.';
+				atualizarFila();
+			} else {
+				erroResposta = mensagemDeErro(falha);
+			}
 		} finally {
 			enviando = false;
 		}
@@ -165,6 +310,37 @@
 			{/if}
 		</p>
 	</header>
+
+	{#if offline || naFila > 0 || avisoFila}
+		<div
+			class="rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-100"
+			role="status"
+			data-offline={offline ? 'sim' : 'nao'}
+		>
+			{#if offline}
+				<p>
+					Sem conexão — mostrando a última atualização{salvoEm
+						? ` de ${horaCurta(salvoEm)}`
+						: ''}. Você pode responder; a resposta sobe quando a rede voltar.
+				</p>
+			{/if}
+
+			{#if naFila > 0}
+				<div class="mt-2 flex flex-wrap items-center gap-2">
+					<span>{naFila} resposta(s) aguardando envio.</span>
+					{#if !offline}
+						<Button variant="outline" onclick={() => void sincronizar()} disabled={sincronizando}>
+							{sincronizando ? 'Sincronizando…' : 'Sincronizar agora'}
+						</Button>
+					{/if}
+				</div>
+			{/if}
+
+			{#if avisoFila}
+				<p class="mt-2">{avisoFila}</p>
+			{/if}
+		</div>
+	{/if}
 
 	{#if authState.carregando || carregando}
 		<Card.Root>
@@ -252,6 +428,11 @@
 					</Button>
 					<span class="text-muted-foreground text-sm">
 						{pendente ? 'Confira e envie: só vale uma resposta por pergunta.' : 'Escolha sua resposta.'}
+					</span>
+				{:else if pergunta && enviadasSemRede[pergunta.id]}
+					<span class="text-muted-foreground text-sm">
+						Resposta guardada no aparelho. Ela sobe sozinha quando a conexão voltar — nada de
+						responder duas vezes.
 					</span>
 				{:else if conduzida}
 					<span class="text-muted-foreground text-sm">

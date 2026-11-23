@@ -96,7 +96,8 @@ export function acompanharAtividade(usuario: User): () => void {
 		const agora = Date.now();
 		if (agora - ultimoToque < INTERVALO_TOQUE_MS) return;
 		ultimoToque = agora;
-		void tocarSessao(usuario);
+		// sem rede o POST falha: não pode virar unhandled rejection no console
+		void tocarSessao(usuario).catch(() => undefined);
 	};
 
 	const eventos: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'scroll', 'touchstart'];
@@ -110,6 +111,16 @@ export function acompanharAtividade(usuario: User): () => void {
 	const vigia = setInterval(() => {
 		if (!sessaoUsuario.id || !sessaoUsuario.expiraEm) return;
 		if (Date.now() <= sessaoUsuario.expiraEm) return;
+
+		// Sem rede não existe como autenticar de novo: deslogar aqui apagaria a tela e
+		// deixaria a fila de respostas órfã. A sessão do servidor já está vencida de
+		// qualquer forma (ele recusa tudo), então a área privada só é desmontada quando
+		// a conexão volta — aí sim o usuário é obrigado a entrar de novo.
+		if (typeof navigator !== 'undefined' && !navigator.onLine) {
+			sessaoUsuario.aviso =
+				'Sem conexão. A sessão será revalidada assim que a rede voltar — o que você responder agora fica guardado.';
+			return;
+		}
 
 		sessaoUsuario.aviso = 'Sessão expirada por inatividade (2 min). Entre novamente.';
 		limparSessao();
