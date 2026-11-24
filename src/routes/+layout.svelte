@@ -1,6 +1,6 @@
 <script lang="ts">
 	import '../app.css';
-	import { browser } from '$app/environment';
+	import { browser, version } from '$app/environment';
 	import type { Snippet } from 'svelte';
 	import { ModeWatcher } from 'mode-watcher';
 	import Navbar from '$lib/components/ui/navbar/navbar.svelte';
@@ -28,11 +28,15 @@
 
 	// service worker: guarda a UI no aparelho para o app abrir mesmo sem rede.
 	// Só em produção — no `vite dev` o arquivo não existe e o registro só geraria erro no console.
+	// A `version` do build entra na URL e `updateViaCache: 'none'` impede que o Cloudflare
+	// (que guarda .js por 4 h) devolva o service worker da versão anterior.
 	$effect(() => {
 		if (!browser || !import.meta.env.PROD) return;
 		if (!('serviceWorker' in navigator)) return;
 
-		void navigator.serviceWorker.register('/service-worker.js');
+		void navigator.serviceWorker.register(`/service-worker.js?v=${version}`, {
+			updateViaCache: 'none'
+		});
 	});
 
 	// aplica a escala de fonte guardada já no boot (antes só era aplicada ao clicar)

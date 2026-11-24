@@ -56,5 +56,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 		resposta.headers.set('Cache-Control', 'no-store');
 	}
 
+	// O script do service worker nunca pode vir de cache intermediário (o Cloudflare
+	// guarda .js por 4 h por padrão): com cópia velha no edge, o app novo demora horas
+	// para chegar ao aparelho e o offline fica servindo build antigo.
+	if (pathname === '/service-worker.js') {
+		resposta.headers.set('Cache-Control', 'no-cache, must-revalidate');
+	}
+
 	return resposta;
 };
