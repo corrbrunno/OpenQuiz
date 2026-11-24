@@ -125,6 +125,18 @@ trabalhador.addEventListener('install', (evento) => {
 				})
 			);
 
+			// O HTML do início vai para o cache AQUI: no primeiro acesso o service worker
+			// ainda não controlava a página, então nenhuma navegação passou por ele e o app
+			// abriria offline direto na tela de "sem conexão".
+			try {
+				const inicio = await fetch('/', { cache: 'reload' });
+				if (inicio.ok) {
+					await (await caches.open(CACHE_PAGINAS)).put(new Request('/'), inicio);
+				}
+			} catch {
+				// sem rede agora: a primeira navegação online que passar pelo SW guarda a página
+			}
+
 			await trabalhador.skipWaiting();
 		})()
 	);
