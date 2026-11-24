@@ -26,6 +26,15 @@
 		void iniciarAuth();
 	});
 
+	// service worker: guarda a UI no aparelho para o app abrir mesmo sem rede.
+	// Só em produção — no `vite dev` o arquivo não existe e o registro só geraria erro no console.
+	$effect(() => {
+		if (!browser || !import.meta.env.PROD) return;
+		if (!('serviceWorker' in navigator)) return;
+
+		void navigator.serviceWorker.register('/service-worker.js');
+	});
+
 	// aplica a escala de fonte guardada já no boot (antes só era aplicada ao clicar)
 	$effect(() => {
 		if (!browser || !acessibilidadePronta()) return;
