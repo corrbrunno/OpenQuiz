@@ -1,0 +1,147 @@
+=== LIMPEZA DE RESIDUO DE TESTES ANTERIORES ===
+questionarios de teste removidos: 0
+
+=== USUARIOS DE TESTE ===
+criados: teste-api-dono-1795480929679@example.com | teste-api-a-1795480930354@example.com | teste-api-b-1795480930927@example.com
+
+=== SESSAO DO APP (blocos 2 e 6) ===
+OK   sessao do app criada (uuid) -> true
+OK   GET /api/sessao -> 200 -> 200
+OK   id da sessao confere -> "a10687b2-ab09-4468-9a0f-4e5b5a74ec1c"
+OK   existe expiracao -> "string"
+OK   renovar sessao pela atividade (touch) -> 200 -> 200
+OK   expiraEm foi empurrado para frente -> true
+OK   mutacao sem X-Sessao -> 401 -> 401
+OK   codigo sessao-invalida -> "sessao-invalida"
+OK   mutacao com sessao inexistente -> 401 -> 401
+
+=== PARTE 1: QUESTIONARIO (CRIAR, LISTAR, EDITAR) ===
+OK   criado -> 201 -> 201
+OK   lista do dono tem 1 -> 1
+OK   sem codigo na lista (o codigo nasce na sessao) -> false
+OK   outro usuario nao ve o questionario -> 0
+OK   carregar para edicao -> 200 -> 200
+OK   perguntas com gabarito para o editor -> 5
+OK   gabarito veio no formato comum -> 1
+OK   quem nao e dono nao carrega para editar -> 404 -> 404
+OK   editar -> 200 -> 200
+OK   titulo atualizado -> "Prova de teste (editada)"
+OK   ordem invertida -> "091af89d-61fe-4ccd-ac1a-9f8d2a04d96a"
+OK   ids das perguntas preservados (respostas antigas nao morrem) -> ["091af89d-61fe-4ccd-ac1a-9f8d2a04d96a","1645aafe-241a-4d59-b632-56658b4f19b5","6d1c1919-d4ea-400f-a40e-a4eaf0283915","98a18bd5-3f16-4530-9c4f-ad67a8428bf9","e4587bdd-03a2-4b37-ba07-5daf77aeef89"]
+OK   voltou a ordem original -> 1
+
+=== PARTE 2: SESSAO CONDUZIDA ===
+OK   iniciar sessao -> 201 -> 201
+OK   codigo com 6 caracteres -> 6
+OK   sala sem login -> 401 -> 401
+OK   dono abrindo a sala -> 200 -> 200
+OK   dono reconhecido -> true
+OK   modo conduzida entrega so a pergunta no ar -> 1
+OK   e ela e a primeira -> "98a18bd5-3f16-4530-9c4f-ad67a8428bf9"
+OK   dono nao entra como jogador -> 409 -> 409
+OK   jogador A entra -> 201 -> 201
+OK   jogador B entra -> 201 -> 201
+OK   entrar de novo e idempotente -> 201 -> 201
+OK   jogador ve so a pergunta no ar -> 1
+OK   gabarito do apresentador NAO aparece para o jogador -> false
+OK   placar escondido enquanto a sessao esta aberta -> null
+OK   quem nao esta na sala nao responde -> 403 -> 403
+OK   A responde a pergunta 1 -> 201 -> 201
+OK   A acertou (correcao no servidor) -> 1
+OK   B responde a pergunta 1 -> 201 -> 201
+OK   B errou -> 0
+OK   reenvio nao sobrescreve -> 200 -> 200
+OK   reenvio devolve o que ja estava gravado -> 1
+OK   reenvio marcado como ja respondida -> true
+OK   responder pergunta fora do ar -> 409 -> 409
+OK   resposta apontando item inexistente -> 400 -> 400
+
+=== PAINEL DO APRESENTADOR ===
+OK   painel do dono -> 200 -> 200
+OK   2 participantes -> 2
+OK   2 responderam a pergunta no ar -> 2
+OK   gabarito disponivel para o apresentador -> 1
+OK   placar: A na frente -> 1
+OK   placar: B atras -> 0
+OK   jogador nao acessa o painel -> 403 -> 403
+OK   acao invalida -> 400 -> 400
+OK   avancar -> 200 -> 200
+OK   pergunta no ar agora e a 2 -> 2
+OK   jogador recebe a pergunta 2 -> "091af89d-61fe-4ccd-ac1a-9f8d2a04d96a"
+OK   A acerta a pergunta 2 -> 1
+OK   voltar -> 200 -> 200
+OK   voltou para a pergunta 1 -> 1
+OK   nao passa da ultima pergunta -> 5
+OK   editar com sessao aberta -> 409 -> 409
+OK   encerrar -> 200 -> 200
+OK   status encerrada -> "encerrada"
+OK   responder depois de encerrar -> 409 -> 409
+OK   jogador ve o resumo final depois de encerrar -> true
+OK   resumo final ordenado: A primeiro -> 2
+OK   resumo final: B com 0 -> 0
+OK   B sabe quem ele e no placar -> true
+
+=== SESSAO LIVRE (CADA UM NO SEU RITMO) ===
+OK   iniciar sessao livre -> 201 -> 201
+OK   modo gravado -> "livre"
+OK   modo livre entrega todas as perguntas -> 5
+OK   pode comecar pela ultima pergunta -> 201
+OK   acertou os dois pares -> 2
+OK   pode responder a primeira depois -> 201
+OK   modo invalido -> 400 -> 400
+
+=== TEMPO REAL (SSE) ===
+OK   SSE com sessao vigente -> 200 -> 200
+OK   content-type text/event-stream -> true
+OK   stream emitiu evento estado -> true
+OK   stream trouxe o estado da sala -> true
+OK   stream nao traz o gabarito do apresentador -> false
+OK   stream reconhece que nao e o dono -> true
+
+=== BLOCO 6: AUTENTICACAO E AUTORIZACAO (MATRIZ) ===
+OK   A6-01 dono le o proprio questionario -> 200 -> 200
+OK   A6-01 gabarito disponivel para o dono -> true
+OK   A6-02 outra conta le o questionario -> 404 -> 404
+OK   A6-02 negativa nao vaza gabarito -> false
+OK   A6-03 PUT com dono no corpo -> 200 (campo ignorado) -> 200
+OK   A6-03 dono_uid intacto no banco -> "YP1DDbft0qScAWjrPazcDlJiJOu1"
+OK   A6-03 conta A continua sem acesso -> 404 -> 404
+OK   A6-03 conta A nao exclui quiz alheio -> 404 -> 404
+OK   A6-03 questionario continua no banco -> 1
+OK   A6-04 A envia no proprio nome -> 201 -> 201
+OK   A6-04 autoria vem do token, nao do corpo -> "RmR5xfTE6aNVEFH8U9ben1HXivb2"
+OK   A6-05 B le o chat da sala de A -> 403 -> 403
+OK   A6-05 B escreve na sala de A -> 403 -> 403
+OK   A6-05 B abre o painel do apresentador -> 403 -> 403
+OK   A6-07 A registra o proprio token -> 200 -> 200
+OK   A6-07 token gravado na conta de A -> "RmR5xfTE6aNVEFH8U9ben1HXivb2"
+
+=== SESSAO REVOGADA (cenario de defesa do bloco 6) ===
+OK   operar com sessao revogada -> 401 -> 401
+OK   A6-06 lista privada com sessao revogada -> 401 -> 401
+OK   A6-06 codigo sessao-invalida -> "sessao-invalida"
+OK   A6-06 gabarito com sessao revogada -> 401 -> 401
+OK   A6-06 sala com sessao revogada -> 401 -> 401
+OK   A6-06 stream com sessao revogada -> 401 -> 401
+OK   A6-06 sem token nenhum -> 401 -> 401
+OK   A6-06 codigo nao-autenticado -> "nao-autenticado"
+OK   sessao nova volta a funcionar -> 200 -> 200
+OK   a sessao nova tem outro id -> true
+
+=== BANCO (SQL) ===
+OK   5 perguntas deste quiz -> 5
+OK   5 gabaritos deste quiz -> 5
+OK   2 sessoes deste quiz -> 2
+OK   3 participantes (2 na conduzida + 1 na livre) -> 3
+OK   5 respostas (3 na conduzida + 2 na livre) -> 5
+OK   sessao conduzida encerrada no banco -> "encerrada"
+OK   sessao conduzida parada na ultima pergunta -> 5
+
+=== LIMPEZA ===
+OK   cascade limpou tudo deste quiz -> [0,0,0,0,0]
+OK   nao sobrou quiz de teste -> 0
+OK   usuario dono removido -> true
+OK   usuario A removido -> true
+OK   usuario B removido -> true
+
+### RESULTADO: TODOS OS CASOS PASSARAM ###
