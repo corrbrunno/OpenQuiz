@@ -150,11 +150,64 @@ Auxiliares: `sessoes_usuario` (sessão do app) e `tokens_push` (um por aparelho)
 Todas as relações usam `ON DELETE CASCADE`: excluir o questionário limpa perguntas, gabaritos,
 sessões, participantes e respostas.
 
+## Perfis de teste
+
+O sistema tem dois papéis, definidos pela **posse do recurso** (não existe coluna `role` no banco:
+o papel é derivado de `quizzes.dono_uid`, e a autorização é feita no servidor, não na tela).
+
+| Perfil | Como entra | O que pode |
+|---|---|---|
+| **Apresentador (dono)** | cria o questionário e inicia a sessão | conduz a sessão (avançar/encerrar),
+vê painel e ranking; é o único que passa nas rotas `/api/sessoes/<codigo>/controle*` |
+| **Participante** | entra pelo código de 6 caracteres | responde as perguntas e usa o chat da sala;
+recebe 403 no painel de controle e na sala de quem não é dono nem participante |
+
+Contas de demonstração (criadas só para a avaliação, sem dado real):
+
+| Conta | Senha |
+|---|---|
+| `professor.p2@example.com` | `P2Hibridos#2026` |
+| `aluno.p2@example.com` | `P2Hibridos#2026` |
+
+Fluxo mínimo com dois aparelhos: entrar como professor → criar quiz → iniciar sessão (o código de 6
+caracteres aparece no painel) → no segundo aparelho entrar como aluno com esse código → responder.
+
+## Roteiro dos cenários (A–E)
+
+Cada cenário é reproduzível em ~2 min no app publicado.
+
+**A — Fluxo completo.** Professor cria o quiz, inicia a sessão e obtém o código. Aluno entra com o
+código e responde. Recarregue a página do aluno: a resposta continua lá (persistida no PostgreSQL em
+nuvem, não em memória). O painel do professor conta 1 respondido e o ranking aparece ao encerrar.
+
+**B — Segurança.** (1) *Sem sessão*: `curl -s -o /dev/null -w '%{http_code}'`
+em `https://quiz.corrbrunno.dev.br/api/quizzes` → **401**. (2) *Perfil incompatível*: logado como aluno,
+`GET /api/sessoes/<codigo>/controle` → **403** ("Só quem criou o questionário controla a sessão").
+(3) *Sessão revogada*: sair em outro aparelho e repetir `GET /api/quizzes` com o token antigo → **401**
+com `codigo: "sessao-invalida"`.
+
+**C — Recurso nativo.** No APK: Perfil → ativar a confirmação pelo sistema. Ao reabrir o app, o diálogo
+de biometria/PIN do Android aparece antes da área privada. Cancelar mantém a área fechada; a preferência
+é por conta e por aparelho e nenhuma senha é armazenada. A validação local **não** substitui a do
+servidor — sem token válido e sessão vigente a API continua devolvendo 401.
+
+**D — Falha de rede.** Aluno na sala, com a pergunta no ar → ativar modo avião → responder. A tela mostra
+"Resposta guardada no aparelho" e "1 resposta(s) aguardando envio"; a fila fica em `localStorage`
+(`fila-offline:<uid>`) contendo apenas o payload (sala, pergunta, alternativas) — nunca token ou sessão.
+Ao religar a rede a fila esvazia sozinha (~2,5 s), aparece "1 resposta(s) sincronizada(s) com o servidor"
+e o banco fica com **uma** linha. Reenviar o mesmo payload devolve `jaRespondida: true` sem criar
+segunda linha.
+
+**E — Resiliência.** *Entrada inválida*: `POST /api/sessoes` sem `quizId` → **400** com mensagem legível.
+*Sessão expirada*: ficar 2 min sem interagir e responder → o app avisa e pede login novamente, sem
+desmontar a tela à força (e a fila de respostas offline sobrevive à expiração). *Serviço fora*: com a API
+indisponível a interface cai no estado offline/erro em vez de encerrar.
+
 ## Testes
 
 - `npm run test:logica` — 25 casos: montagem de gabarito e resposta dos cinco tipos, correção
   com acerto parcial, resposta em branco e validação de payload.
-- `npm run test:api` — 97 asserções contra a API real: criação e edição de questionário, sessão
+- `npm run test:api` — 120 asserções contra a API real: criação e edição de questionário, sessão
   conduzida com dois jogadores, sessão livre, `401/403/404/409/400`, garantia de que o gabarito
   não vaza, reenvio idempotente, ordem do placar, sessão do app (expiração, revogação, `touch`),
   stream SSE e limpeza por cascata.
