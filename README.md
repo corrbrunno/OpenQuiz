@@ -141,6 +141,35 @@ aplicativo** recebe uma notificação; tocar nela abre a sala direto na pergunta
 | `POST /api/sessao/touch` | renovar a sessão por atividade |
 | `POST /api/upload` | upload assinado no Cloudinary |
 
+### Endereço da API publicada
+
+A API é servida pelo próprio app publicado, na mesma origem — não existe servidor separado:
+
+| Ambiente | Base |
+|---|---|
+| Produção | `https://quiz.corrbrunno.dev.br/api/` |
+| Desenvolvimento | `http://localhost:5174/api/` (`npm run dev`) |
+
+Exemplo: `GET https://quiz.corrbrunno.dev.br/api/quizzes` sem cabeçalho de autenticação responde
+**401** — a guarda de sessão roda antes de qualquer handler.
+
+### Comprovação de persistência em banco em nuvem
+
+Os dados **não ficam em memória**: toda leitura e escrita vai para um PostgreSQL gerenciado em nuvem
+(Neon), apontado por `DATABASE_URL`. Como comprovar em três passos, sem depender de acesso ao painel:
+
+1. autentique e crie um questionário (`POST /api/quizzes`) — a resposta devolve o `id`;
+2. consulte com `GET /api/quizzes` e recarregue a página: o questionário continua lá;
+3. reinicie o container (`docker compose restart`) e repita o `GET` — o registro sobrevive, porque veio
+   do banco, não do processo.
+
+Para inspecionar as linhas gravadas: `npm run db:studio` (Drizzle Studio) com a mesma `DATABASE_URL`, ou
+`psql "$DATABASE_URL" -c "select id, titulo, dono_uid from quizzes"`.
+
+A escrita é idempotente onde importa: `respostas` tem chave única `(sessao, pergunta, participante)` e a
+rota grava com `ON CONFLICT DO NOTHING` — reenviar a mesma resposta devolve `jaRespondida: true` e não
+cria segunda linha.
+
 ## Modelo de dados
 
 `quizzes` → `perguntas` → `gabaritos` (um por pergunta, nunca exposto ao cliente)
@@ -225,7 +254,8 @@ cd android && ./gradlew assembleDebug   # Windows: gradlew.bat assembleDebug
 O APK sai em `android/app/build/outputs/apk/debug/app-debug.apk`.
 
 A arquitetura atual é de **shell**: o WebView carrega a aplicação publicada
-(`server.url` em `capacitor.config.ts`). Isso mantém API, sessão e SSE no servidor Node e evita
+(`server.url` em `capacitor.config.ts`) — hoje **https://quiz.corrbrunno.dev.br**. Isso mantém API,
+sessão e SSE no servidor Node e evita
 duplicar regra de negócio. Para uma versão autônoma, use `adapter-static` acionado por variável
 de ambiente, aponte `PUBLIC_API_BASE` para o backend e remova o bloco `server`.
 
