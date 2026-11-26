@@ -7,6 +7,10 @@ navegador ou pelo aplicativo Android.
 O mesmo código roda nos dois lugares — o aplicativo é um shell Capacitor que carrega a
 aplicação web, então a regra de negócio e a interface são únicas.
 
+- **Código-fonte:** https://github.com/corrbrunno/OpenQuiz (branch `master`)
+- **Aplicação publicada:** https://quiz.corrbrunno.dev.br
+- **Pacote instalável:** `app-debug.apk` (build em *Aplicativo Android*, abaixo)
+
 ## Stack
 
 | Camada | Escolha |
